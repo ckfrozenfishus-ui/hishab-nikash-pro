@@ -42,22 +42,28 @@ Build a real, production-style, multi-company accounting and operations web appl
 - [x] Seed data with realistic wholesale frozen food data
 - [x] All backend CRUD APIs with auth protection
 
+## What's Been Implemented (Phase 2 - April 14, 2026)
+- [x] Expenses module (list with filters, create expense form, 15 seeded expenses)
+- [x] Inventory module (list with stock tracking, detail with movement history, valuation with charts)
+- [x] Stock adjustment functionality (receive, ship, damage, return, transfer)
+- [x] Accounts Receivable (aging buckets, customer balances, open invoices table)
+- [x] Accounts Payable (vendor balances, aging chart, recent expenses)
+- [x] Reports Hub (6 report categories with navigation)
+- [x] Profit & Loss report (statement view, monthly trend chart, date filters)
+- [x] Sales Report (top customers, top products, monthly trend, status breakdown)
+- [x] Expense Report (category breakdown with progress bars, vendor analysis, monthly trend)
+- [x] 15 seeded inventory items with realistic frozen food SKUs
+- [x] All Phase 2 backend APIs (17 endpoints, 100% pass rate)
+
 ## Prioritized Backlog
 
-### P0 (Phase 2 - Next)
-- Expenses module (list, create, record payment)
-- Inventory module (list, detail, valuation, stock adjustment)
-- Accounts Receivable (aging buckets, collection priority)
-- Accounts Payable (due bills, payment schedule)
-- Reports Hub + P&L, Sales Report, Expense Report
-
-### P1 (Phase 3)
+### P0 (Phase 3 - Next)
 - AI Assistant (GPT-5.2 powered business copilot)
 - Settings/Admin (company settings, user roles, tax settings)
 - Print templates (Invoice, Packing List, Customer Statement)
 - Email service for invoice sending
 
-### P2 (Future)
+### P1 (Future)
 - Balance Sheet report
 - Cash Flow report
 - Inventory reports
