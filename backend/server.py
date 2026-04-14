@@ -209,7 +209,7 @@ async def get_customers(company_id: str, user: dict = Depends(get_current_user))
     customers = await db.customers.find({"company_id": company_id}, {"_id": 0}).to_list(500)
     return customers
 
-@api_router.post("/companies/{company_id}/customers")
+@api_router.post("/companies/{company_id}/customers", status_code=201)
 async def create_customer(company_id: str, data: CustomerCreate, user: dict = Depends(get_current_user)):
     cust = {
         "customer_id": f"cust_{uuid.uuid4().hex[:10]}",
@@ -251,7 +251,7 @@ async def get_vendors(company_id: str, user: dict = Depends(get_current_user)):
     vendors = await db.vendors.find({"company_id": company_id}, {"_id": 0}).to_list(500)
     return vendors
 
-@api_router.post("/companies/{company_id}/vendors")
+@api_router.post("/companies/{company_id}/vendors", status_code=201)
 async def create_vendor(company_id: str, data: VendorCreate, user: dict = Depends(get_current_user)):
     vendor = {
         "vendor_id": f"vnd_{uuid.uuid4().hex[:10]}",
@@ -296,7 +296,7 @@ async def get_invoices(company_id: str, status: Optional[str] = None, user: dict
     invoices = await db.invoices.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
     return invoices
 
-@api_router.post("/companies/{company_id}/invoices")
+@api_router.post("/companies/{company_id}/invoices", status_code=201)
 async def create_invoice(company_id: str, data: InvoiceCreate, user: dict = Depends(get_current_user)):
     count = await db.invoices.count_documents({"company_id": company_id})
     inv_number = f"INV-{str(count + 1001).zfill(5)}"
