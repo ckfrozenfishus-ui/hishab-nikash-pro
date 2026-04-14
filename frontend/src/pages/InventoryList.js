@@ -3,7 +3,7 @@ import { useCompany } from '../contexts/CompanyContext';
 import { getInventory } from '../lib/api';
 import AppShell from '../components/layout/AppShell';
 import { useNavigate } from 'react-router-dom';
-import { Plus, MagnifyingGlass, Export, ChartBar } from '@phosphor-icons/react';
+import { Plus, MagnifyingGlass, Export, ChartBar, BellRinging } from '@phosphor-icons/react';
 
 export default function InventoryList() {
   const { selectedCompany } = useCompany();
@@ -11,6 +11,8 @@ export default function InventoryList() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [alertSending, setAlertSending] = useState(false);
+  const [alertResult, setAlertResult] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -42,6 +44,23 @@ export default function InventoryList() {
             <p className="text-sm mt-1" style={{ color: '#434655' }}>Track stock levels across warehouses</p>
           </div>
           <div className="flex items-center gap-2">
+            {lowStockCount > 0 && (
+              <button data-testid="send-low-stock-alert" onClick={async () => {
+                setAlertSending(true);
+                try {
+                  const { sendLowStockAlert } = await import('../lib/api');
+                  const res = await sendLowStockAlert(selectedCompany.company_id);
+                  setAlertResult(res.data);
+                  setTimeout(() => setAlertResult(null), 5000);
+                } catch (err) { console.error(err); setAlertResult({ status: 'error' }); }
+                finally { setAlertSending(false); }
+              }}
+                disabled={alertSending}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                style={{ color: '#BA1A1A', boxShadow: '0 0 0 1px #BA1A1A', opacity: alertSending ? 0.6 : 1 }}>
+                <BellRinging size={16} /> {alertSending ? 'Sending...' : `Alert (${lowStockCount})`}
+              </button>
+            )}
             <button data-testid="inventory-valuation-btn" onClick={() => navigate('/inventory/valuation')}
               className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors hover:bg-[#F2F4F6]"
               style={{ color: '#191C1E', boxShadow: '0 0 0 1px #C4C5D7' }}>
@@ -69,6 +88,17 @@ export default function InventoryList() {
             </div>
           ))}
         </div>
+
+        {/* Alert Result */}
+        {alertResult && (
+          <div className="rounded-lg p-3 flex items-center gap-2" style={{ background: alertResult.status === 'sent' ? '#dcfce7' : alertResult.status === 'no_alerts' ? '#F2F4F6' : '#fef2f2' }}>
+            <BellRinging size={16} style={{ color: alertResult.status === 'sent' ? '#16a34a' : '#BA1A1A' }} />
+            <span className="text-sm font-medium" style={{ color: alertResult.status === 'sent' ? '#16a34a' : '#434655' }}>
+              {alertResult.status === 'sent' ? `Low stock alert sent to ${alertResult.sent_to} for ${alertResult.items_count} items` :
+               alertResult.status === 'no_alerts' ? 'All inventory levels are adequate' : 'Failed to send alert'}
+            </span>
+          </div>
+        )}
 
         {/* Filters */}
         <div className="flex items-center gap-3 flex-wrap">

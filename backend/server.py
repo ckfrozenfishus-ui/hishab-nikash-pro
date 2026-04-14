@@ -5,6 +5,8 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 import httpx
+import asyncio
+import resend
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
@@ -13,6 +15,11 @@ from datetime import datetime, timezone, timedelta
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
+
+# Resend setup
+resend.api_key = os.environ.get('RESEND_API_KEY', '')
+SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'onboarding@resend.dev')
+ALERT_RECIPIENT_EMAIL = os.environ.get('ALERT_RECIPIENT_EMAIL', '')
 
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
@@ -129,6 +136,24 @@ class StockAdjustment(BaseModel):
     quantity: float = 0
     reason: str = ""
     reference: str = ""
+
+class ProductCreate(BaseModel):
+    name: str
+    description: Optional[str] = ""
+    category: Optional[str] = ""
+    unit: str = "pcs"
+    cost_price: float = 0
+    selling_price: float = 0
+    case_price: Optional[float] = 0
+    case_quantity: Optional[int] = 1
+    weight_info: Optional[str] = ""
+    sku: Optional[str] = ""
+    status: str = "Active"
+
+class EmailRequest(BaseModel):
+    recipient_email: str
+    subject: str
+    html_content: str
 
 # ─── Auth Helpers ───
 
@@ -822,6 +847,139 @@ async def get_expense_report(company_id: str, start_date: Optional[str] = None, 
         "monthly_trend": monthly_trend
     }
 
+# ─── Products Routes ───
+
+@api_router.get("/companies/{company_id}/products")
+async def get_products(company_id: str, category: Optional[str] = None, user: dict = Depends(get_current_user)):
+    query = {"company_id": company_id}
+    if category:
+        query["category"] = category
+    products = await db.products.find(query, {"_id": 0}).to_list(500)
+    return products
+
+@api_router.post("/companies/{company_id}/products", status_code=201)
+async def create_product(company_id: str, data: ProductCreate, user: dict = Depends(get_current_user)):
+    product = {
+        "product_id": f"prod_{uuid.uuid4().hex[:10]}",
+        "company_id": company_id,
+        **data.model_dump(),
+        "sku": data.sku or f"SKU-{uuid.uuid4().hex[:6].upper()}",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": user["user_id"]
+    }
+    await db.products.insert_one(product)
+    product.pop("_id", None)
+    return product
+
+@api_router.get("/companies/{company_id}/products/{product_id}")
+async def get_product(company_id: str, product_id: str, user: dict = Depends(get_current_user)):
+    p = await db.products.find_one({"company_id": company_id, "product_id": product_id}, {"_id": 0})
+    if not p:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return p
+
+@api_router.put("/companies/{company_id}/products/{product_id}")
+async def update_product(company_id: str, product_id: str, data: ProductCreate, user: dict = Depends(get_current_user)):
+    result = await db.products.update_one(
+        {"company_id": company_id, "product_id": product_id},
+        {"$set": data.model_dump()}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Product not found")
+    updated = await db.products.find_one({"company_id": company_id, "product_id": product_id}, {"_id": 0})
+    return updated
+
+@api_router.delete("/companies/{company_id}/products/{product_id}")
+async def delete_product(company_id: str, product_id: str, user: dict = Depends(get_current_user)):
+    result = await db.products.delete_one({"company_id": company_id, "product_id": product_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return {"ok": True}
+
+# ─── Email & Alert Routes ───
+
+async def send_email_async(to_email: str, subject: str, html: str):
+    try:
+        params = {"from": SENDER_EMAIL, "to": [to_email], "subject": subject, "html": html}
+        result = await asyncio.to_thread(resend.Emails.send, params)
+        logger.info(f"Email sent to {to_email}: {result}")
+        return result
+    except Exception as e:
+        logger.error(f"Failed to send email: {str(e)}")
+        return None
+
+@api_router.post("/send-email")
+async def send_email(request: EmailRequest, user: dict = Depends(get_current_user)):
+    result = await send_email_async(request.recipient_email, request.subject, request.html_content)
+    if result:
+        return {"status": "success", "message": f"Email sent to {request.recipient_email}"}
+    raise HTTPException(status_code=500, detail="Failed to send email")
+
+@api_router.post("/companies/{company_id}/low-stock-alert")
+async def send_low_stock_alert(company_id: str, user: dict = Depends(get_current_user)):
+    if not ALERT_RECIPIENT_EMAIL:
+        raise HTTPException(status_code=400, detail="No alert recipient configured")
+    items = await db.inventory.find({"company_id": company_id}, {"_id": 0}).to_list(500)
+    low_stock = [i for i in items if i.get("stock_on_hand", 0) <= i.get("reorder_point", 10)]
+    if not low_stock:
+        return {"status": "no_alerts", "message": "All inventory levels are adequate"}
+    company = None
+    for c in COMPANIES:
+        if c["company_id"] == company_id:
+            company = c
+            break
+    company_name = company["name"] if company else company_id
+    rows = ""
+    for item in low_stock:
+        rows += f"""<tr style="border-bottom:1px solid #E6E8EA;">
+            <td style="padding:10px 12px;font-size:13px;color:#191C1E;">{item.get('sku','')}</td>
+            <td style="padding:10px 12px;font-size:13px;color:#191C1E;font-weight:600;">{item.get('product_name','')}</td>
+            <td style="padding:10px 12px;font-size:13px;color:#434655;">{item.get('warehouse','')}</td>
+            <td style="padding:10px 12px;font-size:13px;color:#BA1A1A;font-weight:700;text-align:right;">{item.get('stock_on_hand',0)} {item.get('unit','')}</td>
+            <td style="padding:10px 12px;font-size:13px;color:#434655;text-align:right;">{item.get('reorder_point',0)} {item.get('unit','')}</td>
+        </tr>"""
+    html = f"""
+    <div style="font-family:Inter,Arial,sans-serif;max-width:640px;margin:0 auto;background:#F7F9FB;padding:24px;">
+        <div style="background:#FFFFFF;border-radius:12px;padding:28px;margin-bottom:16px;">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
+                <div style="width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,#0037B0,#1D4ED8);color:white;font-weight:bold;font-size:16px;text-align:center;line-height:40px;">HN</div>
+                <div>
+                    <h1 style="margin:0;font-family:Manrope,sans-serif;font-size:20px;color:#191C1E;">Low Stock Alert</h1>
+                    <p style="margin:2px 0 0;font-size:13px;color:#434655;">{company_name}</p>
+                </div>
+            </div>
+            <p style="font-size:14px;color:#434655;line-height:1.5;margin:0 0 16px;">
+                The following <strong style="color:#BA1A1A;">{len(low_stock)} item(s)</strong> have fallen below their reorder point and may need immediate restocking.
+            </p>
+            <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                <thead>
+                    <tr style="background:#F7F9FB;border-bottom:2px solid #C4C5D7;">
+                        <th style="padding:10px 12px;text-align:left;font-size:11px;color:#434655;text-transform:uppercase;letter-spacing:0.5px;">SKU</th>
+                        <th style="padding:10px 12px;text-align:left;font-size:11px;color:#434655;text-transform:uppercase;letter-spacing:0.5px;">Product</th>
+                        <th style="padding:10px 12px;text-align:left;font-size:11px;color:#434655;text-transform:uppercase;letter-spacing:0.5px;">Warehouse</th>
+                        <th style="padding:10px 12px;text-align:right;font-size:11px;color:#434655;text-transform:uppercase;letter-spacing:0.5px;">On Hand</th>
+                        <th style="padding:10px 12px;text-align:right;font-size:11px;color:#434655;text-transform:uppercase;letter-spacing:0.5px;">Reorder Pt</th>
+                    </tr>
+                </thead>
+                <tbody>{rows}</tbody>
+            </table>
+        </div>
+        <p style="text-align:center;font-size:11px;color:#434655;opacity:0.6;">Hishab Nikash Pro — Powered by iAlam</p>
+    </div>"""
+    result = await send_email_async(ALERT_RECIPIENT_EMAIL, f"Low Stock Alert - {company_name} ({len(low_stock)} items)", html)
+    # Log the alert
+    await db.alerts.insert_one({
+        "alert_id": f"alert_{uuid.uuid4().hex[:10]}",
+        "company_id": company_id,
+        "type": "low_stock",
+        "items_count": len(low_stock),
+        "items": [{"sku": i.get("sku"), "product_name": i.get("product_name"), "stock": i.get("stock_on_hand")} for i in low_stock],
+        "sent_to": ALERT_RECIPIENT_EMAIL,
+        "sent_at": datetime.now(timezone.utc).isoformat(),
+        "email_sent": result is not None
+    })
+    return {"status": "sent" if result else "failed", "items_count": len(low_stock), "sent_to": ALERT_RECIPIENT_EMAIL}
+
 # ─── Seed Data Route ───
 
 @api_router.post("/seed/{company_id}")
@@ -998,6 +1156,45 @@ async def seed_data(company_id: str):
                     {"movement_id": f"mov_{uuid.uuid4().hex[:8]}", "type": "receive", "quantity": stock,
                      "reason": "Initial stock", "reference": "INIT", "date": datetime.now(timezone.utc).isoformat(), "by": "system"}
                 ],
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_by": "system"
+            })
+
+    # Seed Products
+    existing_products = await db.products.count_documents({"company_id": company_id})
+    if existing_products == 0:
+        product_items = [
+            ("Hilsha 5/8 UP", "Premium Hilsha fish, 5/8 size, whole frozen", "Frozen Fish", "kg", 3.99, 175.96, 8797.95, 50, "(20KG X 1) 44.09 LBS @ 3.99 LB"),
+            ("Hilsha 5/8 (2in1)", "Hilsha fish 5/8 size, 2-in-1 pack", "Frozen Fish", "pack", 9.99, 179.82, 8991.00, 50, "(2 IN 1) X 18PACK @9.99 PACK"),
+            ("Hilsha 800 GM UP", "Hilsha fish 800gm and up, whole frozen", "Frozen Fish", "kg", 5.50, 242.55, 24255.00, 100, "20KGS/44.09 LBS @ 5.50"),
+            ("Hilsha 1000 GM UP", "Hilsha fish 1kg and up, premium grade", "Frozen Fish", "kg", 6.50, 286.65, 28665.00, 100, "20KG/44.10LB@6.50"),
+            ("Hilsha 1200 GM UP", "Hilsha fish 1.2kg+, extra large premium", "Frozen Fish", "kg", 7.99, 352.36, 35235.90, 100, "20KG/44.10LB@7.99"),
+            ("Swei / Pangash (W) 2 KG UP", "Pangash fish whole, 2kg and up", "Frozen Fish", "kg", 2.50, 110.25, 11025.00, 100, "20KGS/44.10 LBS @2.50"),
+            ("Rohu 1 KG UP (2 IN 1) Pack", "Rohu fish 1kg up, 2-in-1 pack", "Frozen Fish", "pack", 6.99, 55.92, 5592.00, 100, "(2 IN 1) X 8 PACK @6.99 PACK"),
+            ("Rohu 3 KG UP", "Rohu fish 3kg and up, whole cleaned", "Frozen Fish", "pcs", 11.99, 71.94, 7194.00, 100, "3KG UP X 6 PC @ 11.99 EACH"),
+            ("Mrigal 1 KG UP (2 IN 1)", "Mrigal fish 1kg up, 2-in-1 pack", "Frozen Fish", "pack", 9.99, 79.92, 7192.80, 90, "(2 IN 1) X 8 PACK @9.99 PACK"),
+            ("Puti (W) 1 KG UP", "Puti fish whole, 1kg and up", "Frozen Fish", "kg", 1.59, 70.12, 2103.57, 30, "(20KG X 1) 44.09 LBS @ 1.59 LB"),
+            ("Tiger Shrimp 16/20", "Headless shell-on tiger shrimp, IQF", "Frozen Shrimp", "lb", 14.25, 14.25, 712.50, 50, "IQF 2LB BAG X 25"),
+            ("Black Tiger Shrimp 21/25", "Black tiger shrimp 21/25 count", "Frozen Shrimp", "lb", 11.50, 11.50, 575.00, 50, "IQF 2LB BAG X 25"),
+            ("Catla Fish (Whole)", "Catla fish whole cleaned", "Frozen Fish", "lb", 6.50, 6.50, 325.00, 50, "2-3 LB SIZE WHOLE"),
+            ("Bombay Duck (Dried)", "Sun-dried Bombay duck, premium", "Dried Fish", "kg", 12.00, 12.00, 360.00, 30, "1KG PACK X 30"),
+            ("Tilapia Fillet", "Boneless skinless tilapia fillet", "Frozen Fish", "kg", 3.50, 3.50, 875.00, 250, "5KG BOX X 50"),
+        ]
+        for idx, (name, desc, cat, unit, cost, sell, case_p, case_qty, weight) in enumerate(product_items):
+            await db.products.insert_one({
+                "product_id": f"prod_{uuid.uuid4().hex[:10]}",
+                "company_id": company_id,
+                "name": name,
+                "description": desc,
+                "category": cat,
+                "unit": unit,
+                "cost_price": cost,
+                "selling_price": sell,
+                "case_price": case_p,
+                "case_quantity": case_qty,
+                "weight_info": weight,
+                "sku": f"SKU-{str(idx + 1).zfill(3)}",
+                "status": "Active",
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "created_by": "system"
             })

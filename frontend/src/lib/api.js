@@ -68,6 +68,20 @@ export const getInventoryValuation = (companyId) => api.get(`/companies/${compan
 export const getReceivables = (companyId) => api.get(`/companies/${companyId}/receivables`);
 export const getPayables = (companyId) => api.get(`/companies/${companyId}/payables`);
 
+// Products
+export const getProducts = (companyId, category) => {
+  const params = category ? `?category=${category}` : '';
+  return api.get(`/companies/${companyId}/products${params}`);
+};
+export const createProduct = (companyId, data) => api.post(`/companies/${companyId}/products`, data);
+export const getProduct = (companyId, productId) => api.get(`/companies/${companyId}/products/${productId}`);
+export const updateProduct = (companyId, productId, data) => api.put(`/companies/${companyId}/products/${productId}`, data);
+export const deleteProduct = (companyId, productId) => api.delete(`/companies/${companyId}/products/${productId}`);
+
+// Alerts
+export const sendLowStockAlert = (companyId) => api.post(`/companies/${companyId}/low-stock-alert`);
+export const sendEmail = (data) => api.post('/send-email', data);
+
 // Reports
 export const getProfitLoss = (companyId, startDate, endDate) => {
   const params = new URLSearchParams();

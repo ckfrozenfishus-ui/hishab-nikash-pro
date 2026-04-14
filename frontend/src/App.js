@@ -24,6 +24,8 @@ import ReportsHub from './pages/ReportsHub';
 import ProfitLoss from './pages/ProfitLoss';
 import SalesReport from './pages/SalesReport';
 import ExpenseReport from './pages/ExpenseReport';
+import ProductsList from './pages/ProductsList';
+import InvoicePrint from './pages/InvoicePrint';
 import './App.css';
 
 function AppRouter() {
@@ -64,6 +66,12 @@ function AppRouter() {
       } />
       <Route path="/vendors/:vendorId" element={
         <ProtectedRoute><VendorDetail /></ProtectedRoute>
+      } />
+      <Route path="/products" element={
+        <ProtectedRoute><ProductsList /></ProtectedRoute>
+      } />
+      <Route path="/sales/:invoiceId/print" element={
+        <ProtectedRoute><InvoicePrint /></ProtectedRoute>
       } />
       <Route path="/expenses" element={
         <ProtectedRoute><ExpensesList /></ProtectedRoute>

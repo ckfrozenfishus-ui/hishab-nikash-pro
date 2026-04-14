@@ -4,7 +4,7 @@ import { useCompany } from '../../contexts/CompanyContext';
 import {
   House, ShoppingCart, Users, Truck, Receipt, Package,
   CurrencyDollar, Wallet, ChartBar, Robot, Gear,
-  Plus, Headset, SignOut, CaretLeft, CaretRight
+  Plus, Headset, SignOut, CaretLeft, CaretRight, Tag
 } from '@phosphor-icons/react';
 import { useState } from 'react';
 
@@ -13,6 +13,7 @@ const navItems = [
   { path: '/sales', label: 'Sales', icon: ShoppingCart },
   { path: '/customers', label: 'Customers', icon: Users },
   { path: '/vendors', label: 'Vendors', icon: Truck },
+  { path: '/products', label: 'Products', icon: Tag },
   { path: '/expenses', label: 'Expenses', icon: Receipt },
   { path: '/inventory', label: 'Inventory', icon: Package },
   { path: '/receivables', label: 'Accounts Receivable', icon: CurrencyDollar },
