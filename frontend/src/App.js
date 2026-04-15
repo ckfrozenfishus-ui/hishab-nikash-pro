@@ -28,6 +28,10 @@ import ProductsList from './pages/ProductsList';
 import InvoicePrint from './pages/InvoicePrint';
 import AIAssistant from './pages/AIAssistant';
 import Settings from './pages/Settings';
+import BalanceSheet from './pages/BalanceSheet';
+import CashFlow from './pages/CashFlow';
+import PackingListPrint from './pages/PackingListPrint';
+import CustomerStatementPrint from './pages/CustomerStatementPrint';
 import './App.css';
 
 function AppRouter() {
@@ -107,6 +111,18 @@ function AppRouter() {
       } />
       <Route path="/reports/expenses" element={
         <ProtectedRoute><ExpenseReport /></ProtectedRoute>
+      } />
+      <Route path="/reports/balance-sheet" element={
+        <ProtectedRoute><BalanceSheet /></ProtectedRoute>
+      } />
+      <Route path="/reports/cash-flow" element={
+        <ProtectedRoute><CashFlow /></ProtectedRoute>
+      } />
+      <Route path="/sales/:invoiceId/packing-list" element={
+        <ProtectedRoute><PackingListPrint /></ProtectedRoute>
+      } />
+      <Route path="/customers/:customerId/statement" element={
+        <ProtectedRoute><CustomerStatementPrint /></ProtectedRoute>
       } />
       {/* Phase 3 routes */}
       <Route path="/ai-assistant" element={

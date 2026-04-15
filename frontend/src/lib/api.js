@@ -125,5 +125,17 @@ export const getExpenseReport = (companyId, startDate, endDate) => {
   const qs = params.toString() ? `?${params.toString()}` : '';
   return api.get(`/companies/${companyId}/reports/expenses${qs}`);
 };
+export const getBalanceSheet = (companyId, asOfDate) => {
+  const qs = asOfDate ? `?as_of_date=${asOfDate}` : '';
+  return api.get(`/companies/${companyId}/reports/balance-sheet${qs}`);
+};
+export const getCashFlow = (companyId, startDate, endDate) => {
+  const params = new URLSearchParams();
+  if (startDate) params.append('start_date', startDate);
+  if (endDate) params.append('end_date', endDate);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return api.get(`/companies/${companyId}/reports/cash-flow${qs}`);
+};
+export const getCustomerStatement = (companyId, customerId) => api.get(`/companies/${companyId}/customers/${customerId}/statement`);
 
 export default api;

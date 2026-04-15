@@ -853,6 +853,134 @@ async def get_expense_report(company_id: str, start_date: Optional[str] = None, 
         "monthly_trend": monthly_trend
     }
 
+# ─── Balance Sheet Report ───
+
+@api_router.get("/companies/{company_id}/reports/balance-sheet")
+async def get_balance_sheet(company_id: str, as_of_date: Optional[str] = None, user: dict = Depends(get_current_user)):
+    invoices = await db.invoices.find({"company_id": company_id}, {"_id": 0}).to_list(1000)
+    expenses = await db.expenses.find({"company_id": company_id}, {"_id": 0}).to_list(1000)
+    vendors = await db.vendors.find({"company_id": company_id}, {"_id": 0}).to_list(500)
+    inventory = await db.inventory.find({"company_id": company_id}, {"_id": 0}).to_list(500)
+    if as_of_date:
+        invoices = [i for i in invoices if i.get("invoice_date", "") <= as_of_date]
+        expenses = [e for e in expenses if e.get("expense_date", "") <= as_of_date]
+    total_receivables = sum(i.get("balance_due", 0) for i in invoices if i.get("balance_due", 0) > 0)
+    total_collected = sum(i.get("amount_paid", 0) for i in invoices)
+    total_sales = sum(i.get("total", 0) for i in invoices)
+    total_expenses = sum(e.get("amount", 0) for e in expenses)
+    inventory_value = sum(it.get("inventory_value", 0) for it in inventory)
+    total_payables = sum(v.get("payable_balance", 0) for v in vendors)
+    cash = total_collected - total_expenses
+    total_assets = cash + total_receivables + inventory_value
+    total_liabilities = total_payables
+    equity = total_assets - total_liabilities
+    retained_earnings = total_sales * 0.38 - total_expenses
+    return {
+        "as_of_date": as_of_date or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "assets": {
+            "current_assets": {
+                "cash_and_equivalents": round(max(0, cash), 2),
+                "accounts_receivable": round(total_receivables, 2),
+                "inventory": round(inventory_value, 2),
+                "total_current_assets": round(max(0, cash) + total_receivables + inventory_value, 2)
+            },
+            "total_assets": round(total_assets, 2)
+        },
+        "liabilities": {
+            "current_liabilities": {
+                "accounts_payable": round(total_payables, 2),
+                "total_current_liabilities": round(total_payables, 2)
+            },
+            "total_liabilities": round(total_liabilities, 2)
+        },
+        "equity": {
+            "owner_equity": round(max(0, equity - retained_earnings), 2),
+            "retained_earnings": round(retained_earnings, 2),
+            "total_equity": round(equity, 2)
+        },
+        "total_liabilities_and_equity": round(total_liabilities + equity, 2)
+    }
+
+# ─── Cash Flow Report ───
+
+@api_router.get("/companies/{company_id}/reports/cash-flow")
+async def get_cash_flow(company_id: str, start_date: Optional[str] = None, end_date: Optional[str] = None, user: dict = Depends(get_current_user)):
+    invoices = await db.invoices.find({"company_id": company_id}, {"_id": 0}).to_list(1000)
+    expenses = await db.expenses.find({"company_id": company_id}, {"_id": 0}).to_list(1000)
+    if start_date:
+        invoices = [i for i in invoices if i.get("invoice_date", "") >= start_date]
+        expenses = [e for e in expenses if e.get("expense_date", "") >= start_date]
+    if end_date:
+        invoices = [i for i in invoices if i.get("invoice_date", "") <= end_date]
+        expenses = [e for e in expenses if e.get("expense_date", "") <= end_date]
+    collections = sum(i.get("amount_paid", 0) for i in invoices)
+    total_expenses = sum(e.get("amount", 0) for e in expenses)
+    # Monthly cash flow
+    monthly = {}
+    for inv in invoices:
+        m = inv.get("invoice_date", "")[:7]
+        if m:
+            monthly.setdefault(m, {"inflow": 0, "outflow": 0})
+            monthly[m]["inflow"] += inv.get("amount_paid", 0)
+    for exp in expenses:
+        m = exp.get("expense_date", "")[:7]
+        if m:
+            monthly.setdefault(m, {"inflow": 0, "outflow": 0})
+            monthly[m]["outflow"] += exp.get("amount", 0)
+    monthly_data = [{"month": k, "inflow": round(v["inflow"], 2), "outflow": round(v["outflow"], 2), "net": round(v["inflow"] - v["outflow"], 2)} for k, v in sorted(monthly.items())]
+    # Expense breakdown for operating activities
+    exp_categories = {}
+    for e in expenses:
+        cat = e.get("category", "Other")
+        exp_categories[cat] = exp_categories.get(cat, 0) + e.get("amount", 0)
+    net_operating = collections - total_expenses
+    return {
+        "operating_activities": {
+            "collections_from_customers": round(collections, 2),
+            "payments_to_vendors": round(total_expenses, 2),
+            "expense_breakdown": [{"category": k, "amount": round(v, 2)} for k, v in sorted(exp_categories.items(), key=lambda x: -x[1])],
+            "net_operating_cash_flow": round(net_operating, 2)
+        },
+        "investing_activities": {
+            "equipment_purchases": 0,
+            "net_investing_cash_flow": 0
+        },
+        "financing_activities": {
+            "owner_contributions": 0,
+            "net_financing_cash_flow": 0
+        },
+        "net_change_in_cash": round(net_operating, 2),
+        "beginning_cash": 50000,
+        "ending_cash": round(50000 + net_operating, 2),
+        "monthly_data": monthly_data
+    }
+
+# ─── Customer Statement ───
+
+@api_router.get("/companies/{company_id}/customers/{customer_id}/statement")
+async def get_customer_statement(company_id: str, customer_id: str, user: dict = Depends(get_current_user)):
+    customer = await db.customers.find_one({"company_id": company_id, "customer_id": customer_id}, {"_id": 0})
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    invoices = await db.invoices.find({"company_id": company_id, "customer_id": customer_id}, {"_id": 0}).sort("invoice_date", 1).to_list(500)
+    transactions = []
+    running_balance = 0
+    for inv in invoices:
+        running_balance += inv.get("total", 0)
+        transactions.append({"date": inv.get("invoice_date", ""), "type": "Invoice", "ref": inv.get("invoice_number", ""), "description": f"Invoice {inv.get('invoice_number', '')}", "amount": inv.get("total", 0), "balance": round(running_balance, 2)})
+        for p in inv.get("payments", []):
+            running_balance -= p.get("amount", 0)
+            transactions.append({"date": p.get("payment_date", ""), "type": "Payment", "ref": p.get("reference", ""), "description": f"Payment - {p.get('payment_method', '')}", "amount": -p.get("amount", 0), "balance": round(running_balance, 2)})
+    return {
+        "customer": customer,
+        "transactions": transactions,
+        "total_invoiced": sum(i.get("total", 0) for i in invoices),
+        "total_paid": sum(i.get("amount_paid", 0) for i in invoices),
+        "balance_due": round(running_balance, 2),
+        "statement_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "invoice_count": len(invoices)
+    }
+
 # ─── Products Routes ───
 
 @api_router.get("/companies/{company_id}/products")
@@ -1522,6 +1650,36 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.on_event("startup")
+async def startup_scheduler():
+    """Start background scheduler for daily low-stock checks."""
+    async def daily_check_loop():
+        while True:
+            try:
+                now = datetime.now(timezone.utc)
+                # Run at 8 AM UTC daily
+                next_run = now.replace(hour=8, minute=0, second=0, microsecond=0)
+                if now >= next_run:
+                    next_run += timedelta(days=1)
+                wait_seconds = (next_run - now).total_seconds()
+                logger.info(f"Next daily low-stock check in {wait_seconds/3600:.1f} hours")
+                await asyncio.sleep(wait_seconds)
+                logger.info("Running scheduled daily low-stock check...")
+                if ALERT_RECIPIENT_EMAIL:
+                    for company in COMPANIES:
+                        cid = company["company_id"]
+                        items = await db.inventory.find({"company_id": cid}, {"_id": 0}).to_list(500)
+                        low_stock = [i for i in items if i.get("stock_on_hand", 0) <= i.get("reorder_point", 10)]
+                        if low_stock:
+                            rows = "".join([f"<tr><td style='padding:6px 10px;font-size:12px;'>{i.get('sku','')}</td><td style='padding:6px 10px;font-size:12px;font-weight:600;'>{i.get('product_name','')}</td><td style='padding:6px 10px;font-size:12px;color:#BA1A1A;text-align:right;'>{i.get('stock_on_hand',0)}</td></tr>" for i in low_stock])
+                            html = f"<div style='font-family:Inter,sans-serif;'><h2>Daily Low Stock - {company['name']}</h2><p>{len(low_stock)} items below reorder point.</p><table style='width:100%;border-collapse:collapse;'><thead><tr style='background:#F7F9FB;'><th style='padding:6px;text-align:left;'>SKU</th><th style='padding:6px;text-align:left;'>Product</th><th style='padding:6px;text-align:right;'>Stock</th></tr></thead><tbody>{rows}</tbody></table></div>"
+                            await send_email_async(ALERT_RECIPIENT_EMAIL, f"Daily Low Stock - {company['name']}", html)
+                            logger.info(f"Daily alert sent for {cid}: {len(low_stock)} items")
+            except Exception as e:
+                logger.error(f"Scheduler error: {e}")
+                await asyncio.sleep(3600)
+    asyncio.create_task(daily_check_loop())
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

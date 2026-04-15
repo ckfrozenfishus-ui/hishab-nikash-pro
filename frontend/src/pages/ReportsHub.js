@@ -9,8 +9,8 @@ const reportCategories = [
     color: '#0037B0',
     reports: [
       { name: 'Profit & Loss', desc: 'Income, expenses, and net profit', path: '/reports/profit-loss' },
-      { name: 'Balance Sheet', desc: 'Assets, liabilities, and equity', path: null },
-      { name: 'Cash Flow', desc: 'Cash inflows and outflows', path: null },
+      { name: 'Balance Sheet', desc: 'Assets, liabilities, and equity', path: '/reports/balance-sheet' },
+      { name: 'Cash Flow', desc: 'Cash inflows and outflows', path: '/reports/cash-flow' },
     ]
   },
   {

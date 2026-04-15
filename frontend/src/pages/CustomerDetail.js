@@ -45,14 +45,24 @@ export default function CustomerDetail() {
             <h1 className="text-2xl font-bold" style={{ fontFamily: 'Manrope, sans-serif', color: '#191C1E' }}>{customer.name}</h1>
             <p className="text-sm mt-0.5" style={{ color: '#434655' }}>{customer.company_name}</p>
           </div>
-          <button
-            data-testid="create-invoice-for-customer"
-            onClick={() => navigate('/sales/new')}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-white"
-            style={{ background: 'linear-gradient(135deg, #0037B0, #1D4ED8)' }}
-          >
-            Create Invoice
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              data-testid="customer-statement-btn"
+              onClick={() => navigate(`/customers/${customerId}/statement`)}
+              className="px-4 py-2 rounded-lg text-sm font-medium transition-colors hover:bg-[#F2F4F6]"
+              style={{ color: '#191C1E', boxShadow: '0 0 0 1px #C4C5D7' }}
+            >
+              Statement
+            </button>
+            <button
+              data-testid="create-invoice-for-customer"
+              onClick={() => navigate('/sales/new')}
+              className="px-4 py-2 rounded-lg text-sm font-medium text-white"
+              style={{ background: 'linear-gradient(135deg, #0037B0, #1D4ED8)' }}
+            >
+              Create Invoice
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
