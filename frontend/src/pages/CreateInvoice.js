@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useCompany } from '../contexts/CompanyContext';
-import { getCustomers, createInvoice } from '../lib/api';
+import { getCustomers, getProducts, createInvoice } from '../lib/api';
 import AppShell from '../components/layout/AppShell';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Plus, Trash, FloppyDisk } from '@phosphor-icons/react';
 
 const emptyItem = { product: '', description: '', quantity: 1, unit: 'pcs', rate: 0, discount: 0, tax: 0, amount: 0 };
@@ -10,7 +10,9 @@ const emptyItem = { product: '', description: '', quantity: 1, unit: 'pcs', rate
 export default function CreateInvoice() {
   const { selectedCompany } = useCompany();
   const navigate = useNavigate();
+  const location = useLocation();
   const [customers, setCustomers] = useState([]);
+  const [products, setProducts] = useState([]);
   const [form, setForm] = useState({
     customer_id: '', customer_name: '', invoice_date: new Date().toISOString().split('T')[0],
     due_date: '', sales_rep: '', warehouse: 'Main Warehouse', notes: '', terms: 'Net 30',
@@ -21,7 +23,30 @@ export default function CreateInvoice() {
   useEffect(() => {
     if (!selectedCompany) return;
     getCustomers(selectedCompany.company_id).then(res => setCustomers(res.data)).catch(() => {});
+    getProducts(selectedCompany.company_id).then(res => setProducts(res.data)).catch(() => {});
   }, [selectedCompany]);
+
+  // Load extracted data from AI if available
+  useEffect(() => {
+    const ext = location.state?.extractedData;
+    if (ext) {
+      setForm(prev => ({
+        ...prev,
+        customer_name: ext.customer_name || '',
+        invoice_date: ext.invoice_date || prev.invoice_date,
+        due_date: ext.due_date || '',
+        notes: ext.notes || '',
+      }));
+      if (ext.items?.length) {
+        setItems(ext.items.map(it => ({
+          product: it.product || '', description: it.description || '',
+          quantity: it.quantity || 1, unit: it.unit || 'pcs',
+          rate: it.rate || 0, discount: 0, tax: (it.amount || 0) * 0.08,
+          amount: it.amount || 0,
+        })));
+      }
+    }
+  }, [location.state]);
 
   const updateItem = (idx, field, value) => {
     const updated = [...items];
@@ -193,14 +218,30 @@ export default function CreateInvoice() {
                   <div key={idx} className="grid grid-cols-12 gap-2 items-end p-3 rounded-lg" style={{ background: '#F7F9FB' }}>
                     <div className="col-span-3">
                       {idx === 0 && <label className="block text-[10px] font-medium mb-1" style={{ color: '#434655' }}>Product</label>}
-                      <input
+                      <select
                         data-testid={`item-product-${idx}`}
                         value={item.product}
-                        onChange={(e) => updateItem(idx, 'product', e.target.value)}
-                        placeholder="Product name"
+                        onChange={(e) => {
+                          const selected = products.find(p => p.name === e.target.value);
+                          if (selected) {
+                            updateItem(idx, 'product', selected.name);
+                            const updated = [...items];
+                            updated[idx] = { ...updated[idx], product: selected.name, description: selected.description || selected.weight_info || '', rate: selected.selling_price || 0, unit: selected.unit || 'pcs' };
+                            const q = parseFloat(updated[idx].quantity) || 0;
+                            const r = selected.selling_price || 0;
+                            updated[idx].amount = q * r;
+                            updated[idx].tax = (q * r) * 0.08;
+                            setItems(updated);
+                          } else {
+                            updateItem(idx, 'product', e.target.value);
+                          }
+                        }}
                         className="w-full px-2 py-2 text-xs rounded-md focus:outline-none focus:ring-1"
                         style={{ background: '#FFFFFF', boxShadow: '0 0 0 1px #C4C5D7', color: '#191C1E' }}
-                      />
+                      >
+                        <option value="">Select product...</option>
+                        {products.map(p => <option key={p.product_id} value={p.name}>{p.name} (${p.selling_price})</option>)}
+                      </select>
                     </div>
                     <div className="col-span-2">
                       {idx === 0 && <label className="block text-[10px] font-medium mb-1" style={{ color: '#434655' }}>Description</label>}

@@ -1,7 +1,7 @@
 import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
 import { useNavigate } from 'react-router-dom';
-import { MagnifyingGlass, Bell, ClockCounterClockwise, Question, CaretDown, Buildings } from '@phosphor-icons/react';
+import { MagnifyingGlass, Bell, ClockCounterClockwise, Question, CaretDown, Buildings, List } from '@phosphor-icons/react';
 import { useState, useRef, useEffect } from 'react';
 
 const COMPANIES = [
@@ -11,7 +11,7 @@ const COMPANIES = [
   { company_id: 'ckcanada', name: 'CK Frozen Fish & Food Canada Inc.', short_name: 'CK Canada', type: 'Import & Distribution' },
 ];
 
-export default function Header() {
+export default function Header({ onMenuToggle }) {
   const { user } = useAuth();
   const { selectedCompany, selectCompany } = useCompany();
   const navigate = useNavigate();
@@ -41,9 +41,14 @@ export default function Header() {
       className="sticky top-0 z-40 flex items-center justify-between h-16 px-6"
       style={{ background: '#F7F9FB', borderBottom: '1px solid #E6E8EA' }}
     >
-      {/* Search */}
+      {/* Mobile menu + Search */}
       <div className="flex items-center gap-3 flex-1 max-w-md">
-        <div className="relative flex-1">
+        {onMenuToggle && (
+          <button data-testid="mobile-menu-btn" onClick={onMenuToggle} className="p-2 rounded-lg lg:hidden hover:bg-white" style={{ color: '#434655' }}>
+            <List size={22} />
+          </button>
+        )}
+        <div className="relative flex-1 hidden sm:block">
           <MagnifyingGlass size={18} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: '#434655' }} />
           <input
             data-testid="header-search"

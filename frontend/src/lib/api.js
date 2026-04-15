@@ -81,6 +81,27 @@ export const deleteProduct = (companyId, productId) => api.delete(`/companies/${
 // Alerts
 export const sendLowStockAlert = (companyId) => api.post(`/companies/${companyId}/low-stock-alert`);
 export const sendEmail = (data) => api.post('/send-email', data);
+export const runDailyLowStockCheck = () => api.post('/scheduled/daily-low-stock-check');
+
+// AI
+export const aiChat = (data) => api.post('/ai/chat', data);
+export const aiExtractInvoice = (formData) => api.post('/ai/extract-invoice', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+export const getAiSessions = () => api.get('/ai/sessions');
+export const getAiSessionMessages = (sessionId) => api.get(`/ai/sessions/${sessionId}`);
+
+// Settings
+export const getSettings = (companyId) => api.get(`/settings/${companyId}`);
+export const updateSettings = (companyId, data) => api.put(`/settings/${companyId}`, data);
+export const getTeamMembers = () => api.get('/team-members');
+export const getPendingRegistrations = () => api.get('/pending-registrations');
+export const approveMember = (requestId, data) => api.post(`/team-members/${requestId}/approve`, data);
+export const rejectMember = (requestId) => api.post(`/team-members/${requestId}/reject`);
+export const updateMemberRole = (memberId, data) => api.put(`/team-members/${memberId}/role`, data);
+
+// CSV Import
+export const importCustomersCSV = (companyId, formData) => api.post(`/companies/${companyId}/import/customers`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+export const importVendorsCSV = (companyId, formData) => api.post(`/companies/${companyId}/import/vendors`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+export const importProductsCSV = (companyId, formData) => api.post(`/companies/${companyId}/import/products`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
 
 // Reports
 export const getProfitLoss = (companyId, startDate, endDate) => {

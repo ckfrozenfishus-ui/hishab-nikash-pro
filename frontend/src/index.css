@@ -115,3 +115,23 @@ code {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--hn-text-muted);
 }
+
+/* Mobile responsive */
+@media (max-width: 1023px) {
+  .lg\:ml-64 { margin-left: 0 !important; }
+  table { font-size: 12px; }
+  table th, table td { padding: 6px 8px !important; }
+}
+
+@media (max-width: 767px) {
+  .grid-cols-2 { grid-template-columns: 1fr !important; }
+  .grid-cols-3 { grid-template-columns: 1fr !important; }
+  .grid-cols-4 { grid-template-columns: repeat(2, 1fr) !important; }
+  .grid-cols-5 { grid-template-columns: repeat(2, 1fr) !important; }
+  .lg\:grid-cols-2 { grid-template-columns: 1fr !important; }
+  .lg\:grid-cols-3 { grid-template-columns: 1fr !important; }
+  .lg\:grid-cols-4 { grid-template-columns: repeat(2, 1fr) !important; }
+  .lg\:grid-cols-5 { grid-template-columns: repeat(2, 1fr) !important; }
+  /* Stack tables on mobile */
+  .overflow-x-auto { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+}

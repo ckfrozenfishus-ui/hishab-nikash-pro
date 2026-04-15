@@ -235,6 +235,147 @@ class HishabNikashAPITester:
         
         return success
 
+    def test_ai_assistant(self):
+        """Test AI Assistant endpoints"""
+        print("\n" + "="*60)
+        print("🤖 TESTING AI ASSISTANT")
+        print("="*60)
+        
+        # Test AI chat
+        chat_data = {
+            "message": "What is my total sales this month?",
+            "company_id": self.company_id
+        }
+        
+        success, chat_response = self.run_test(
+            "AI Chat",
+            "POST",
+            "ai/chat",
+            200,
+            data=chat_data,
+            description="Send message to AI assistant with GPT-5.2"
+        )
+        
+        if success and chat_response:
+            session_id = chat_response.get('session_id')
+            print(f"   📝 Session ID: {session_id}")
+            print(f"   🤖 Response length: {len(chat_response.get('response', ''))}")
+        
+        # Test get AI sessions
+        success2, sessions = self.run_test(
+            "Get AI Sessions",
+            "GET",
+            "ai/sessions",
+            200,
+            description="Get chat history sessions"
+        )
+        
+        if success2 and sessions:
+            print(f"   📚 Found {len(sessions)} chat sessions")
+        
+        return success and success2
+
+    def test_settings(self):
+        """Test Settings endpoints"""
+        print("\n" + "="*60)
+        print("⚙️ TESTING SETTINGS")
+        print("="*60)
+        
+        # Test GET settings
+        success, settings = self.run_test(
+            "Get Settings",
+            "GET",
+            f"settings/{self.company_id}",
+            200,
+            description="Get company settings"
+        )
+        
+        if success and settings:
+            print(f"   🏢 Company: {settings.get('company_id')}")
+            print(f"   💰 Currency: {settings.get('currency', 'USD')}")
+            print(f"   📄 Invoice prefix: {settings.get('invoice_prefix', 'INV')}")
+        
+        # Test PUT settings - update tax rate
+        update_data = {
+            "tax_rate": 8.5,
+            "invoice_prefix": "INV-TEST"
+        }
+        
+        success2, updated_settings = self.run_test(
+            "Update Settings",
+            "PUT",
+            f"settings/{self.company_id}",
+            200,
+            data=update_data,
+            description="Update company settings"
+        )
+        
+        if success2 and updated_settings:
+            print(f"   ✅ Updated tax rate: {updated_settings.get('tax_rate')}")
+            print(f"   ✅ Updated prefix: {updated_settings.get('invoice_prefix')}")
+        
+        return success and success2
+
+    def test_team_management(self):
+        """Test Team Management endpoints"""
+        print("\n" + "="*60)
+        print("👥 TESTING TEAM MANAGEMENT")
+        print("="*60)
+        
+        # Test GET team members
+        success, members = self.run_test(
+            "Get Team Members",
+            "GET",
+            "team-members",
+            200,
+            description="Get team members list"
+        )
+        
+        if success and members:
+            print(f"   👥 Found {len(members)} team members")
+            for member in members[:3]:  # Show first 3
+                print(f"     - {member.get('name', 'N/A')}: {member.get('role', 'N/A')}")
+        
+        # Test GET pending registrations
+        success2, pending = self.run_test(
+            "Get Pending Registrations",
+            "GET",
+            "pending-registrations",
+            200,
+            description="Get pending registration requests"
+        )
+        
+        if success2 and pending:
+            print(f"   ⏳ Found {len(pending)} pending registrations")
+        
+        return success and success2
+
+    def test_scheduled_alerts(self):
+        """Test Scheduled Alert endpoints"""
+        print("\n" + "="*60)
+        print("⏰ TESTING SCHEDULED ALERTS")
+        print("="*60)
+        
+        # Test daily low stock check
+        success, check_response = self.run_test(
+            "Daily Low Stock Check",
+            "POST",
+            "scheduled/daily-low-stock-check",
+            200,
+            description="Run daily low stock check for all companies"
+        )
+        
+        if success and check_response:
+            results = check_response.get('results', [])
+            print(f"   🏢 Checked {len(results)} companies")
+            for result in results:
+                company = result.get('company', 'unknown')
+                status = result.get('status', 'unknown')
+                low_stock = result.get('low_stock', 0)
+                print(f"     - {company}: {low_stock} low stock items, status: {status}")
+        
+        return success
+
     def test_inventory_for_alerts(self):
         """Test inventory to check for low stock items"""
         print("\n" + "="*60)
@@ -263,7 +404,7 @@ class HishabNikashAPITester:
 
     def run_all_tests(self):
         """Run all tests"""
-        print("🚀 Starting Hishab Nikash Pro API Tests")
+        print("🚀 Starting Hishab Nikash Pro Phase 3 API Tests")
         print(f"📍 Base URL: {self.base_url}")
         print(f"🏢 Company: {self.company_id}")
         print(f"👤 User: {self.user_id}")
@@ -277,14 +418,39 @@ class HishabNikashAPITester:
         # Test inventory to understand low stock situation
         self.test_inventory_for_alerts()
         
-        # Test products CRUD
+        # Test products CRUD (existing functionality)
         if not self.test_products_crud():
             print("\n❌ Products CRUD tests failed")
             return False
         
-        # Test low stock alert
+        # Test low stock alert (existing functionality)
         if not self.test_low_stock_alert():
             print("\n❌ Low stock alert test failed")
+            return False
+        
+        # Phase 3 New Features
+        print("\n" + "="*60)
+        print("🆕 TESTING PHASE 3 NEW FEATURES")
+        print("="*60)
+        
+        # Test AI Assistant
+        if not self.test_ai_assistant():
+            print("\n❌ AI Assistant tests failed")
+            return False
+        
+        # Test Settings
+        if not self.test_settings():
+            print("\n❌ Settings tests failed")
+            return False
+        
+        # Test Team Management
+        if not self.test_team_management():
+            print("\n❌ Team Management tests failed")
+            return False
+        
+        # Test Scheduled Alerts
+        if not self.test_scheduled_alerts():
+            print("\n❌ Scheduled Alerts tests failed")
             return False
         
         return True

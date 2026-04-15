@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depends
+from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depends, UploadFile, File, Form
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -7,11 +7,16 @@ import logging
 import httpx
 import asyncio
 import resend
+import base64
+import csv
+import io
+import json
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
 import uuid
 from datetime import datetime, timezone, timedelta
+from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -20,6 +25,7 @@ load_dotenv(ROOT_DIR / '.env')
 resend.api_key = os.environ.get('RESEND_API_KEY', '')
 SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'onboarding@resend.dev')
 ALERT_RECIPIENT_EMAIL = os.environ.get('ALERT_RECIPIENT_EMAIL', '')
+EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
 
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
@@ -979,6 +985,306 @@ async def send_low_stock_alert(company_id: str, user: dict = Depends(get_current
         "email_sent": result is not None
     })
     return {"status": "sent" if result else "failed", "items_count": len(low_stock), "sent_to": ALERT_RECIPIENT_EMAIL}
+
+# ─── AI Assistant Routes ───
+
+@api_router.post("/ai/chat")
+async def ai_chat(request: Request, user: dict = Depends(get_current_user)):
+    body = await request.json()
+    message = body.get("message", "")
+    session_id = body.get("session_id", f"chat_{uuid.uuid4().hex[:10]}")
+    company_id = body.get("company_id", "")
+    if not message:
+        raise HTTPException(status_code=400, detail="Message required")
+    # Get company context
+    context = ""
+    if company_id:
+        dashboard = await get_dashboard.__wrapped__(company_id, user) if hasattr(get_dashboard, '__wrapped__') else {}
+        try:
+            inv_count = await db.invoices.count_documents({"company_id": company_id})
+            cust_count = await db.customers.count_documents({"company_id": company_id})
+            vnd_count = await db.vendors.count_documents({"company_id": company_id})
+            context = f"Company context: {inv_count} invoices, {cust_count} customers, {vnd_count} vendors."
+        except Exception:
+            pass
+    system_msg = f"""You are Hishab Nikash Pro AI Assistant - a business copilot for a wholesale frozen fish import and distribution company. 
+You help with accounting, sales analysis, inventory management, and operational insights.
+{context}
+Be concise, professional, and actionable. Use dollar amounts and specific numbers when possible.
+Format responses with clear sections using markdown."""
+    try:
+        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=session_id, system_message=system_msg)
+        chat.with_model("openai", "gpt-5.2")
+        # Load recent history
+        history = await db.ai_chats.find({"session_id": session_id}, {"_id": 0}).sort("created_at", -1).to_list(20)
+        for h in reversed(history):
+            if h.get("role") == "user":
+                chat.messages.append({"role": "user", "content": h["content"]})
+            elif h.get("role") == "assistant":
+                chat.messages.append({"role": "assistant", "content": h["content"]})
+        user_msg = UserMessage(text=message)
+        response = await chat.send_message(user_msg)
+        # Store messages
+        ts = datetime.now(timezone.utc).isoformat()
+        await db.ai_chats.insert_one({"session_id": session_id, "role": "user", "content": message, "user_id": user["user_id"], "company_id": company_id, "created_at": ts})
+        await db.ai_chats.insert_one({"session_id": session_id, "role": "assistant", "content": response, "user_id": user["user_id"], "company_id": company_id, "created_at": ts})
+        return {"response": response, "session_id": session_id}
+    except Exception as e:
+        logger.error(f"AI chat error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"AI error: {str(e)}")
+
+@api_router.post("/ai/extract-invoice")
+async def ai_extract_invoice(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    content = await file.read()
+    b64 = base64.b64encode(content).decode("utf-8")
+    system_msg = """You are an invoice data extraction assistant. Extract structured data from invoice images.
+Return ONLY valid JSON with this exact structure:
+{"customer_name":"","invoice_date":"YYYY-MM-DD","due_date":"YYYY-MM-DD","items":[{"product":"","description":"","quantity":0,"unit":"pcs","rate":0,"amount":0}],"subtotal":0,"tax_total":0,"total":0,"notes":""}
+Do not include any text before or after the JSON."""
+    try:
+        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"extract_{uuid.uuid4().hex[:8]}", system_message=system_msg)
+        chat.with_model("openai", "gpt-5.2")
+        image_content = ImageContent(image_base64=b64)
+        user_msg = UserMessage(text="Extract all invoice data from this image into structured JSON.", file_contents=[image_content])
+        response = await chat.send_message(user_msg)
+        # Try to parse JSON from response
+        try:
+            cleaned = response.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+            data = json.loads(cleaned)
+        except Exception:
+            data = {"raw_response": response}
+        return {"extracted_data": data}
+    except Exception as e:
+        logger.error(f"Invoice extraction error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Extraction error: {str(e)}")
+
+@api_router.get("/ai/sessions")
+async def get_ai_sessions(user: dict = Depends(get_current_user)):
+    pipeline = [
+        {"$match": {"user_id": user["user_id"], "role": "user"}},
+        {"$group": {"_id": "$session_id", "last_message": {"$last": "$content"}, "last_at": {"$last": "$created_at"}, "count": {"$sum": 1}, "company_id": {"$first": "$company_id"}}},
+        {"$sort": {"last_at": -1}},
+        {"$limit": 30}
+    ]
+    sessions = await db.ai_chats.aggregate(pipeline).to_list(30)
+    return [{"session_id": s["_id"], "preview": (s.get("last_message", "")[:80] + "...") if len(s.get("last_message", "")) > 80 else s.get("last_message", ""), "message_count": s.get("count", 0), "last_at": s.get("last_at", ""), "company_id": s.get("company_id", "")} for s in sessions]
+
+@api_router.get("/ai/sessions/{session_id}")
+async def get_ai_session_messages(session_id: str, user: dict = Depends(get_current_user)):
+    messages = await db.ai_chats.find({"session_id": session_id}, {"_id": 0}).sort("created_at", 1).to_list(100)
+    return messages
+
+# ─── Settings & User Management Routes ───
+
+@api_router.get("/settings/{company_id}")
+async def get_settings(company_id: str, user: dict = Depends(get_current_user)):
+    settings = await db.settings.find_one({"company_id": company_id}, {"_id": 0})
+    if not settings:
+        settings = {
+            "company_id": company_id,
+            "invoice_prefix": "INV",
+            "invoice_starting_number": 1001,
+            "default_terms": "Net 30",
+            "tax_rate": 8.0,
+            "currency": "USD",
+            "logo_url": "",
+            "company_address": "",
+            "company_phone": "",
+            "company_email": "",
+            "company_website": "",
+            "invoice_footer_notes": "Thank you for your business!",
+            "invoice_terms_text": "All payments must be paid within 14 days after delivery.",
+        }
+        await db.settings.insert_one(settings)
+        settings.pop("_id", None)
+    return settings
+
+@api_router.put("/settings/{company_id}")
+async def update_settings(company_id: str, request: Request, user: dict = Depends(get_current_user)):
+    body = await request.json()
+    body.pop("_id", None)
+    body.pop("company_id", None)
+    await db.settings.update_one({"company_id": company_id}, {"$set": body}, upsert=True)
+    updated = await db.settings.find_one({"company_id": company_id}, {"_id": 0})
+    return updated
+
+@api_router.get("/team-members")
+async def get_team_members(user: dict = Depends(get_current_user)):
+    members = await db.team_members.find({}, {"_id": 0}).to_list(100)
+    return members
+
+@api_router.get("/pending-registrations")
+async def get_pending_registrations(user: dict = Depends(get_current_user)):
+    pending = await db.pending_registrations.find({}, {"_id": 0}).to_list(100)
+    return pending
+
+@api_router.post("/register-request")
+async def register_request(request: Request):
+    body = await request.json()
+    reg = {
+        "request_id": f"reg_{uuid.uuid4().hex[:10]}",
+        "name": body.get("name", ""),
+        "email": body.get("email", ""),
+        "role_requested": body.get("role", "Viewer"),
+        "status": "Pending",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.pending_registrations.insert_one(reg)
+    reg.pop("_id", None)
+    return reg
+
+@api_router.post("/team-members/{request_id}/approve")
+async def approve_member(request_id: str, request: Request, user: dict = Depends(get_current_user)):
+    body = await request.json()
+    role = body.get("role", "Viewer")
+    companies = body.get("companies", [])
+    reg = await db.pending_registrations.find_one({"request_id": request_id}, {"_id": 0})
+    if not reg:
+        raise HTTPException(status_code=404, detail="Registration not found")
+    member = {
+        "member_id": f"mem_{uuid.uuid4().hex[:10]}",
+        "name": reg["name"],
+        "email": reg["email"],
+        "role": role,
+        "companies": companies,
+        "status": "Active",
+        "approved_by": user["user_id"],
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.team_members.insert_one(member)
+    await db.pending_registrations.update_one({"request_id": request_id}, {"$set": {"status": "Approved"}})
+    member.pop("_id", None)
+    return member
+
+@api_router.post("/team-members/{request_id}/reject")
+async def reject_member(request_id: str, user: dict = Depends(get_current_user)):
+    await db.pending_registrations.update_one({"request_id": request_id}, {"$set": {"status": "Rejected"}})
+    return {"ok": True}
+
+@api_router.put("/team-members/{member_id}/role")
+async def update_member_role(member_id: str, request: Request, user: dict = Depends(get_current_user)):
+    body = await request.json()
+    await db.team_members.update_one({"member_id": member_id}, {"$set": {"role": body.get("role", "Viewer"), "companies": body.get("companies", [])}})
+    updated = await db.team_members.find_one({"member_id": member_id}, {"_id": 0})
+    return updated
+
+# ─── CSV Import Routes ───
+
+@api_router.post("/companies/{company_id}/import/customers")
+async def import_customers_csv(company_id: str, file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    content = await file.read()
+    text = content.decode("utf-8")
+    reader = csv.DictReader(io.StringIO(text))
+    imported = 0
+    for row in reader:
+        name = row.get("Name") or row.get("name") or row.get("Customer") or row.get("customer") or ""
+        if not name:
+            continue
+        await db.customers.insert_one({
+            "customer_id": f"cust_{uuid.uuid4().hex[:10]}",
+            "company_id": company_id,
+            "name": name,
+            "company_name": row.get("Company") or row.get("company_name") or "",
+            "phone": row.get("Phone") or row.get("phone") or "",
+            "email": row.get("Email") or row.get("email") or "",
+            "address": row.get("Address") or row.get("address") or "",
+            "tax_id": row.get("Tax ID") or row.get("tax_id") or "",
+            "notes": row.get("Notes") or row.get("notes") or "",
+            "open_balance": float(row.get("Balance") or row.get("open_balance") or 0),
+            "total_invoiced": float(row.get("Total Invoiced") or row.get("total_invoiced") or 0),
+            "last_invoice_date": None,
+            "status": "Active",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_by": user["user_id"]
+        })
+        imported += 1
+    return {"imported": imported, "type": "customers"}
+
+@api_router.post("/companies/{company_id}/import/vendors")
+async def import_vendors_csv(company_id: str, file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    content = await file.read()
+    text = content.decode("utf-8")
+    reader = csv.DictReader(io.StringIO(text))
+    imported = 0
+    for row in reader:
+        name = row.get("Name") or row.get("name") or row.get("Vendor") or row.get("vendor") or ""
+        if not name:
+            continue
+        await db.vendors.insert_one({
+            "vendor_id": f"vnd_{uuid.uuid4().hex[:10]}",
+            "company_id": company_id,
+            "name": name,
+            "company_name": row.get("Company") or row.get("company_name") or "",
+            "phone": row.get("Phone") or row.get("phone") or "",
+            "email": row.get("Email") or row.get("email") or "",
+            "address": row.get("Address") or row.get("address") or "",
+            "tax_id": "",
+            "default_expense_account": "",
+            "notes": "",
+            "payable_balance": float(row.get("Balance") or row.get("payable_balance") or 0),
+            "total_billed": 0,
+            "bill_count": 0,
+            "status": "Active",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_by": user["user_id"]
+        })
+        imported += 1
+    return {"imported": imported, "type": "vendors"}
+
+@api_router.post("/companies/{company_id}/import/products")
+async def import_products_csv(company_id: str, file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    content = await file.read()
+    text = content.decode("utf-8")
+    reader = csv.DictReader(io.StringIO(text))
+    imported = 0
+    for row in reader:
+        name = row.get("Name") or row.get("name") or row.get("Product") or row.get("product") or ""
+        if not name:
+            continue
+        await db.products.insert_one({
+            "product_id": f"prod_{uuid.uuid4().hex[:10]}",
+            "company_id": company_id,
+            "name": name,
+            "description": row.get("Description") or row.get("description") or "",
+            "category": row.get("Category") or row.get("category") or "",
+            "unit": row.get("Unit") or row.get("unit") or "pcs",
+            "cost_price": float(row.get("Cost") or row.get("cost_price") or 0),
+            "selling_price": float(row.get("Price") or row.get("selling_price") or 0),
+            "case_price": float(row.get("Case Price") or row.get("case_price") or 0),
+            "case_quantity": int(row.get("Case Qty") or row.get("case_quantity") or 1),
+            "weight_info": row.get("Weight Info") or row.get("weight_info") or "",
+            "sku": row.get("SKU") or row.get("sku") or f"SKU-{uuid.uuid4().hex[:6].upper()}",
+            "status": "Active",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_by": user["user_id"]
+        })
+        imported += 1
+    return {"imported": imported, "type": "products"}
+
+# ─── Scheduled Alert (Manual Trigger / Cron-Ready) ───
+
+@api_router.post("/scheduled/daily-low-stock-check")
+async def daily_low_stock_check():
+    """Check all companies for low stock and send alerts. Designed to be called by a cron job."""
+    if not ALERT_RECIPIENT_EMAIL:
+        return {"status": "skipped", "reason": "No alert recipient"}
+    results = []
+    for company in COMPANIES:
+        cid = company["company_id"]
+        items = await db.inventory.find({"company_id": cid}, {"_id": 0}).to_list(500)
+        low_stock = [i for i in items if i.get("stock_on_hand", 0) <= i.get("reorder_point", 10)]
+        if not low_stock:
+            results.append({"company": cid, "status": "ok", "low_stock": 0})
+            continue
+        rows = ""
+        for item in low_stock:
+            rows += f"<tr><td style='padding:6px 10px;font-size:12px;'>{item.get('sku','')}</td><td style='padding:6px 10px;font-size:12px;font-weight:600;'>{item.get('product_name','')}</td><td style='padding:6px 10px;font-size:12px;color:#BA1A1A;font-weight:700;text-align:right;'>{item.get('stock_on_hand',0)}</td><td style='padding:6px 10px;font-size:12px;text-align:right;'>{item.get('reorder_point',0)}</td></tr>"
+        html = f"<div style='font-family:Inter,sans-serif;max-width:600px;margin:0 auto;'><h2 style='color:#191C1E;'>Daily Low Stock Alert - {company['name']}</h2><p>{len(low_stock)} item(s) below reorder point.</p><table style='width:100%;border-collapse:collapse;'><thead><tr style='background:#F7F9FB;border-bottom:1px solid #C4C5D7;'><th style='padding:6px 10px;text-align:left;font-size:11px;'>SKU</th><th style='padding:6px 10px;text-align:left;font-size:11px;'>Product</th><th style='padding:6px 10px;text-align:right;font-size:11px;'>Stock</th><th style='padding:6px 10px;text-align:right;font-size:11px;'>Reorder</th></tr></thead><tbody>{rows}</tbody></table><p style='font-size:10px;color:#434655;margin-top:16px;'>Hishab Nikash Pro - Automated Alert</p></div>"
+        result = await send_email_async(ALERT_RECIPIENT_EMAIL, f"Daily Low Stock - {company['name']} ({len(low_stock)} items)", html)
+        results.append({"company": cid, "status": "sent" if result else "failed", "low_stock": len(low_stock)})
+    return {"results": results, "checked_at": datetime.now(timezone.utc).isoformat()}
 
 # ─── Seed Data Route ───
 

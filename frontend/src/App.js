@@ -26,6 +26,8 @@ import SalesReport from './pages/SalesReport';
 import ExpenseReport from './pages/ExpenseReport';
 import ProductsList from './pages/ProductsList';
 import InvoicePrint from './pages/InvoicePrint';
+import AIAssistant from './pages/AIAssistant';
+import Settings from './pages/Settings';
 import './App.css';
 
 function AppRouter() {
@@ -106,9 +108,13 @@ function AppRouter() {
       <Route path="/reports/expenses" element={
         <ProtectedRoute><ExpenseReport /></ProtectedRoute>
       } />
-      {/* Placeholder routes for Phase 3 */}
-      <Route path="/ai-assistant" element={<ProtectedRoute><PlaceholderPage title="AI Assistant" desc="Business intelligence copilot powered by GPT — Coming in Phase 3" /></ProtectedRoute>} />
-      <Route path="/settings" element={<ProtectedRoute><PlaceholderPage title="Settings" desc="Company settings, user roles, and configuration — Coming in Phase 3" /></ProtectedRoute>} />
+      {/* Phase 3 routes */}
+      <Route path="/ai-assistant" element={
+        <ProtectedRoute><AIAssistant /></ProtectedRoute>
+      } />
+      <Route path="/settings" element={
+        <ProtectedRoute><Settings /></ProtectedRoute>
+      } />
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

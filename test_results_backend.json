@@ -1,9 +1,9 @@
 {
-  "timestamp": "2026-04-14T18:55:59.344425",
+  "timestamp": "2026-04-15T14:41:41.950668",
   "summary": {
-    "tests_run": 8,
-    "tests_passed": 8,
-    "success_rate": 100.0
+    "tests_run": 10,
+    "tests_passed": 9,
+    "success_rate": 90.0
   },
   "results": [
     {
@@ -753,6 +753,23 @@
           "status": "Active",
           "created_at": "2026-04-14T18:53:29.316488+00:00",
           "created_by": "system"
+        },
+        {
+          "product_id": "prod_8b72a70114",
+          "company_id": "ckfrozen",
+          "name": "Test UI Product",
+          "description": "Test product from UI automation",
+          "category": "Frozen Fish",
+          "unit": "kg",
+          "cost_price": 7.99,
+          "selling_price": 12.99,
+          "case_price": 0.0,
+          "case_quantity": 1,
+          "weight_info": "",
+          "sku": "SKU-ABFB0E",
+          "status": "Active",
+          "created_at": "2026-04-14T18:56:41.614073+00:00",
+          "created_by": "test-user-1776150388162"
         }
       ],
       "error": null
@@ -765,7 +782,7 @@
       "actual_status": 201,
       "success": true,
       "response_data": {
-        "product_id": "prod_e447b10966",
+        "product_id": "prod_6fae294ea7",
         "company_id": "ckfrozen",
         "name": "Test Fish Product",
         "description": "Test product for API testing",
@@ -778,7 +795,7 @@
         "weight_info": "20KG CASE",
         "sku": "TEST-001",
         "status": "Active",
-        "created_at": "2026-04-14T18:55:58.458970+00:00",
+        "created_at": "2026-04-15T14:41:40.487863+00:00",
         "created_by": "test-user-1776150388162"
       },
       "error": null
@@ -786,12 +803,12 @@
     {
       "test_name": "Update Product",
       "method": "PUT",
-      "endpoint": "companies/ckfrozen/products/prod_e447b10966",
+      "endpoint": "companies/ckfrozen/products/prod_6fae294ea7",
       "expected_status": 200,
       "actual_status": 200,
       "success": true,
       "response_data": {
-        "product_id": "prod_e447b10966",
+        "product_id": "prod_6fae294ea7",
         "company_id": "ckfrozen",
         "name": "Updated Test Fish Product",
         "description": "Updated test product",
@@ -804,7 +821,7 @@
         "weight_info": "20KG CASE UPDATED",
         "sku": "TEST-001-UPD",
         "status": "Active",
-        "created_at": "2026-04-14T18:55:58.458970+00:00",
+        "created_at": "2026-04-15T14:41:40.487863+00:00",
         "created_by": "test-user-1776150388162"
       },
       "error": null
@@ -812,12 +829,12 @@
     {
       "test_name": "Get Single Product",
       "method": "GET",
-      "endpoint": "companies/ckfrozen/products/prod_e447b10966",
+      "endpoint": "companies/ckfrozen/products/prod_6fae294ea7",
       "expected_status": 200,
       "actual_status": 200,
       "success": true,
       "response_data": {
-        "product_id": "prod_e447b10966",
+        "product_id": "prod_6fae294ea7",
         "company_id": "ckfrozen",
         "name": "Updated Test Fish Product",
         "description": "Updated test product",
@@ -830,7 +847,7 @@
         "weight_info": "20KG CASE UPDATED",
         "sku": "TEST-001-UPD",
         "status": "Active",
-        "created_at": "2026-04-14T18:55:58.458970+00:00",
+        "created_at": "2026-04-15T14:41:40.487863+00:00",
         "created_by": "test-user-1776150388162"
       },
       "error": null
@@ -838,7 +855,7 @@
     {
       "test_name": "Delete Product",
       "method": "DELETE",
-      "endpoint": "companies/ckfrozen/products/prod_e447b10966",
+      "endpoint": "companies/ckfrozen/products/prod_6fae294ea7",
       "expected_status": 200,
       "actual_status": 200,
       "success": true,
@@ -859,6 +876,36 @@
         "items_count": 1,
         "sent_to": "ckfrozenfishus@gmail.com"
       },
+      "error": null
+    },
+    {
+      "test_name": "AI Chat",
+      "method": "POST",
+      "endpoint": "ai/chat",
+      "expected_status": 200,
+      "actual_status": 500,
+      "success": false,
+      "response_data": null,
+      "error": {
+        "detail": "AI error: Failed to generate chat completion: litellm.BadRequestError: OpenAIException - Budget has been exceeded! Current cost: 0.004669, Max budget: 0.001"
+      }
+    },
+    {
+      "test_name": "Get AI Sessions",
+      "method": "GET",
+      "endpoint": "ai/sessions",
+      "expected_status": 200,
+      "actual_status": 200,
+      "success": true,
+      "response_data": [
+        {
+          "session_id": "chat_e21d4f9748",
+          "preview": "What is Hishab Nikash Pro?",
+          "message_count": 1,
+          "last_at": "2026-04-15T14:39:38.465619+00:00",
+          "company_id": "ckfrozen"
+        }
+      ],
       "error": null
     }
   ]
