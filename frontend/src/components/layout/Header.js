@@ -44,7 +44,7 @@ export default function Header({ onMenuToggle }) {
       {/* Mobile menu + Search */}
       <div className="flex items-center gap-3 flex-1 max-w-md">
         {onMenuToggle && (
-          <button data-testid="mobile-menu-btn" onClick={onMenuToggle} className="p-2 rounded-lg lg:hidden hover:bg-white" style={{ color: '#434655' }}>
+          <button data-testid="mobile-menu-btn" onClick={onMenuToggle} className="p-2 rounded-lg hover:bg-white block lg:hidden" style={{ color: '#434655' }}>
             <List size={22} />
           </button>
         )}
