@@ -4,33 +4,49 @@ import { useCompany } from '../../contexts/CompanyContext';
 import {
   House, ShoppingCart, Users, Truck, Receipt, Package,
   CurrencyDollar, Wallet, ChartBar, Robot, Gear,
-  Plus, Headset, SignOut, CaretLeft, CaretRight, Tag
+  Plus, Headset, SignOut, CaretLeft, CaretRight, Tag,
+  Notebook, BookOpen, Scales, ArrowDown
 } from '@phosphor-icons/react';
 import { useState } from 'react';
 
-const navItems = [
-  { path: '/dashboard', label: 'Dashboard', icon: House },
-  { path: '/sales', label: 'Sales', icon: ShoppingCart },
-  { path: '/estimates', label: 'Estimates', icon: Receipt },
-  { path: '/customers', label: 'Customers', icon: Users },
-  { path: '/vendors', label: 'Vendors', icon: Truck },
-  { path: '/products', label: 'Products', icon: Tag },
-  { path: '/expenses', label: 'Expenses', icon: Receipt },
-  { path: '/bills', label: 'Bills', icon: Wallet },
-  { path: '/inventory', label: 'Inventory', icon: Package },
-  { path: '/receive-stock', label: 'Receive Stock', icon: Package },
-  { path: '/receivables', label: 'Accounts Receivable', icon: CurrencyDollar },
-  { path: '/payables', label: 'Accounts Payable', icon: Wallet },
-  { path: '/chart-of-accounts', label: 'Chart of Accounts', icon: ChartBar },
-  { path: '/journal-entries', label: 'Journal Entries', icon: Receipt },
-  { path: '/general-ledger', label: 'General Ledger', icon: ChartBar },
-  { path: '/trial-balance', label: 'Trial Balance', icon: ChartBar },
-  { path: '/reports', label: 'Reports', icon: ChartBar },
-  { path: '/ai-assistant', label: 'AI Assistant', icon: Robot },
-  { path: '/settings', label: 'Settings', icon: Gear },
+const navSections = [
+  {
+    title: 'MAIN',
+    items: [
+      { path: '/dashboard', label: 'Dashboard', icon: House },
+      { path: '/sales', label: 'Sales', icon: ShoppingCart },
+      { path: '/estimates', label: 'Estimates', icon: BookOpen },
+      { path: '/customers', label: 'Customers', icon: Users },
+      { path: '/vendors', label: 'Vendors', icon: Truck },
+      { path: '/products', label: 'Products', icon: Tag },
+      { path: '/expenses', label: 'Expenses', icon: Receipt },
+      { path: '/bills', label: 'Bills', icon: Wallet },
+      { path: '/inventory', label: 'Inventory', icon: Package },
+      { path: '/receive-stock', label: 'Receive Stock', icon: ArrowDown },
+    ]
+  },
+  {
+    title: 'ACCOUNTING',
+    items: [
+      { path: '/receivables', label: 'Accts Receivable', icon: CurrencyDollar },
+      { path: '/payables', label: 'Accts Payable', icon: Wallet },
+      { path: '/chart-of-accounts', label: 'Chart of Accounts', icon: Notebook },
+      { path: '/journal-entries', label: 'Journal Entries', icon: BookOpen },
+      { path: '/general-ledger', label: 'General Ledger', icon: Scales },
+      { path: '/trial-balance', label: 'Trial Balance', icon: ChartBar },
+    ]
+  },
+  {
+    title: 'TOOLS',
+    items: [
+      { path: '/reports', label: 'Reports', icon: ChartBar },
+      { path: '/ai-assistant', label: 'AI Assistant', icon: Robot },
+      { path: '/settings', label: 'Settings', icon: Gear },
+    ]
+  },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({ onClose }) {
   const { logout } = useAuth();
   const { clearCompany } = useCompany();
   const location = useLocation();
@@ -41,95 +57,107 @@ export default function Sidebar() {
     await logout();
   };
 
+  const handleNavClick = () => {
+    if (onClose) onClose();
+  };
+
   return (
     <aside
       data-testid="app-sidebar"
-      className={`fixed inset-y-0 left-0 z-50 flex flex-col justify-between transition-all duration-200 ${collapsed ? 'w-[68px]' : 'w-64'}`}
+      className={`fixed inset-y-0 left-0 z-50 flex flex-col transition-all duration-200 ${collapsed ? 'w-[68px]' : 'w-64'}`}
       style={{ background: '#F2F4F6' }}
     >
-      {/* Logo area */}
-      <div>
-        <div className="flex items-center justify-between h-16 px-4" style={{ borderBottom: '1px solid #E6E8EA' }}>
-          {!collapsed && (
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm" style={{ background: 'linear-gradient(135deg, #0037B0, #1D4ED8)' }}>
-                HN
-              </div>
-              <span className="font-semibold text-sm" style={{ fontFamily: 'Manrope, sans-serif', color: '#191C1E' }}>
-                Hishab Nikash
-              </span>
-            </div>
-          )}
-          {collapsed && (
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm mx-auto" style={{ background: 'linear-gradient(135deg, #0037B0, #1D4ED8)' }}>
+      {/* Logo - fixed top */}
+      <div className="flex-shrink-0 flex items-center justify-between h-14 px-4" style={{ borderBottom: '1px solid #E6E8EA' }}>
+        {!collapsed && (
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white font-bold text-xs" style={{ background: 'linear-gradient(135deg, #0037B0, #1D4ED8)' }}>
               HN
             </div>
-          )}
-          <button
-            data-testid="sidebar-toggle"
-            onClick={() => setCollapsed(!collapsed)}
-            className="p-1 rounded hover:bg-[#E6E8EA] transition-colors"
-            style={{ color: '#434655' }}
-          >
-            {collapsed ? <CaretRight size={16} /> : <CaretLeft size={16} />}
-          </button>
-        </div>
-
-        {/* Navigation */}
-        <nav className="flex flex-col gap-0.5 px-2 py-3">
-          {navItems.map(({ path, label, icon: Icon }) => {
-            const isActive = location.pathname === path || location.pathname.startsWith(path + '/');
-            return (
-              <NavLink
-                key={path}
-                to={path}
-                data-testid={`nav-${path.replace('/', '')}`}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${collapsed ? 'justify-center' : ''}`}
-                style={{
-                  background: isActive ? '#FFFFFF' : 'transparent',
-                  color: isActive ? '#0037B0' : '#434655',
-                  boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
-                }}
-                title={collapsed ? label : undefined}
-              >
-                <Icon size={20} weight={isActive ? 'fill' : 'regular'} />
-                {!collapsed && <span>{label}</span>}
-              </NavLink>
-            );
-          })}
-        </nav>
+            <span className="font-semibold text-sm" style={{ fontFamily: 'Manrope, sans-serif', color: '#191C1E' }}>
+              Hishab Nikash
+            </span>
+          </div>
+        )}
+        {collapsed && (
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white font-bold text-xs mx-auto" style={{ background: 'linear-gradient(135deg, #0037B0, #1D4ED8)' }}>
+            HN
+          </div>
+        )}
+        <button
+          data-testid="sidebar-toggle"
+          onClick={() => setCollapsed(!collapsed)}
+          className="p-1 rounded hover:bg-[#E6E8EA] transition-colors"
+          style={{ color: '#434655' }}
+        >
+          {collapsed ? <CaretRight size={14} /> : <CaretLeft size={14} />}
+        </button>
       </div>
 
-      {/* Bottom actions */}
-      <div className="px-2 pb-4 flex flex-col gap-1">
+      {/* Scrollable Navigation */}
+      <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-2" style={{ scrollbarWidth: 'thin' }}>
+        {navSections.map((section) => (
+          <div key={section.title} className="mb-1">
+            {!collapsed && (
+              <div className="px-3 pt-3 pb-1">
+                <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: '#434655', opacity: 0.5 }}>
+                  {section.title}
+                </span>
+              </div>
+            )}
+            {collapsed && section.title !== 'MAIN' && (
+              <div className="my-1 mx-3 h-px" style={{ background: '#E6E8EA' }} />
+            )}
+            <div className="flex flex-col gap-px">
+              {section.items.map(({ path, label, icon: Icon }) => {
+                const isActive = location.pathname === path || location.pathname.startsWith(path + '/');
+                return (
+                  <NavLink
+                    key={path}
+                    to={path}
+                    onClick={handleNavClick}
+                    data-testid={`nav-${path.replace(/\//g, '').replace(/-/g, '')}`}
+                    className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all duration-150 ${collapsed ? 'justify-center' : ''}`}
+                    style={{
+                      background: isActive ? '#FFFFFF' : 'transparent',
+                      color: isActive ? '#0037B0' : '#434655',
+                      boxShadow: isActive ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
+                    }}
+                    title={collapsed ? label : undefined}
+                  >
+                    <Icon size={18} weight={isActive ? 'fill' : 'regular'} className="flex-shrink-0" />
+                    {!collapsed && <span className="truncate">{label}</span>}
+                  </NavLink>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </nav>
+
+      {/* Bottom actions - fixed */}
+      <div className="flex-shrink-0 px-2 pb-3 pt-2" style={{ borderTop: '1px solid #E6E8EA' }}>
         <NavLink
           to="/sales/new"
+          onClick={handleNavClick}
           data-testid="nav-new-transaction"
-          className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium text-white transition-all ${collapsed ? 'justify-center' : ''}`}
+          className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-white transition-all ${collapsed ? 'justify-center' : ''}`}
           style={{ background: 'linear-gradient(135deg, #0037B0, #1D4ED8)' }}
         >
-          <Plus size={18} weight="bold" />
+          <Plus size={16} weight="bold" />
           {!collapsed && <span>New Transaction</span>}
         </NavLink>
         <button
-          data-testid="nav-support"
-          className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors hover:bg-[#E6E8EA] ${collapsed ? 'justify-center' : ''}`}
-          style={{ color: '#434655' }}
-        >
-          <Headset size={18} />
-          {!collapsed && <span>Support</span>}
-        </button>
-        <button
           data-testid="nav-logout"
           onClick={handleLogout}
-          className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors hover:bg-[#E6E8EA] ${collapsed ? 'justify-center' : ''}`}
+          className={`flex items-center gap-2.5 px-3 py-2 mt-1 rounded-lg text-[13px] w-full transition-colors hover:bg-[#E6E8EA] ${collapsed ? 'justify-center' : ''}`}
           style={{ color: '#BA1A1A' }}
         >
-          <SignOut size={18} />
+          <SignOut size={16} />
           {!collapsed && <span>Logout</span>}
         </button>
         {!collapsed && (
-          <div className="mt-2 px-3 text-[10px] text-center" style={{ color: '#434655', opacity: 0.6 }}>
+          <div className="mt-1 px-3 text-[9px] text-center" style={{ color: '#434655', opacity: 0.5 }}>
             Hishab Nikash Pro — Powered by iAlam
           </div>
         )}
