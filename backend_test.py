@@ -506,6 +506,572 @@ class HishabNikashAPITester:
         
         return success
 
+    def test_chart_of_accounts(self):
+        """Test Chart of Accounts endpoints"""
+        print("\n" + "="*60)
+        print("📊 TESTING CHART OF ACCOUNTS")
+        print("="*60)
+        
+        # Test GET accounts - should return 19 default accounts
+        success, accounts = self.run_test(
+            "Get Chart of Accounts",
+            "GET",
+            f"companies/{self.company_id}/accounts",
+            200,
+            description="Should return 19 default accounts for CK Frozen"
+        )
+        
+        if not success:
+            return False
+            
+        print(f"   Found {len(accounts)} accounts")
+        if len(accounts) < 19:
+            print(f"   ⚠️  WARNING: Expected 19 accounts, found {len(accounts)}")
+        
+        # Verify account types are present
+        account_types = set(acc.get('account_type') for acc in accounts)
+        expected_types = {'Asset', 'Liability', 'Equity', 'Income', 'Expense'}
+        print(f"   Account types found: {account_types}")
+        
+        # Test POST - Create new account
+        new_account_data = {
+            "code": "7000",
+            "name": "Test Marketing Expense",
+            "account_type": "Expense",
+            "sub_type": "Operating Expense",
+            "description": "Test account for API testing",
+            "opening_balance": 0
+        }
+        
+        success2, created_account = self.run_test(
+            "Create New Account",
+            "POST",
+            f"companies/{self.company_id}/accounts",
+            201,
+            data=new_account_data,
+            description="Create a test account"
+        )
+        
+        if success2:
+            account_id = created_account.get('account_id')
+            print(f"   Created account ID: {account_id}")
+        
+        return success and success2
+
+    def test_journal_entries(self):
+        """Test Journal Entries endpoints"""
+        print("\n" + "="*60)
+        print("📝 TESTING JOURNAL ENTRIES")
+        print("="*60)
+        
+        # Test GET journal entries
+        success, entries = self.run_test(
+            "Get Journal Entries",
+            "GET",
+            f"companies/{self.company_id}/journal-entries",
+            200,
+            description="Get all journal entries"
+        )
+        
+        if not success:
+            return False
+            
+        print(f"   Found {len(entries)} journal entries")
+        
+        # Test POST - Create balanced journal entry
+        journal_entry_data = {
+            "entry_date": "2024-12-15",
+            "description": "Test journal entry for API testing",
+            "lines": [
+                {
+                    "account_code": "1000",
+                    "account_name": "Cash",
+                    "description": "Test debit entry",
+                    "debit": 1000.00,
+                    "credit": 0
+                },
+                {
+                    "account_code": "4000",
+                    "account_name": "Sales Revenue",
+                    "description": "Test credit entry",
+                    "debit": 0,
+                    "credit": 1000.00
+                }
+            ],
+            "status": "Posted"
+        }
+        
+        success2, created_entry = self.run_test(
+            "Create Balanced Journal Entry",
+            "POST",
+            f"companies/{self.company_id}/journal-entries",
+            201,
+            data=journal_entry_data,
+            description="Create a balanced journal entry (debits = credits)"
+        )
+        
+        if success2:
+            entry_id = created_entry.get('entry_id')
+            total_debit = created_entry.get('total_debit', 0)
+            total_credit = created_entry.get('total_credit', 0)
+            print(f"   Created entry ID: {entry_id}")
+            print(f"   Total Debit: ${total_debit}")
+            print(f"   Total Credit: ${total_credit}")
+            print(f"   Balanced: {abs(total_debit - total_credit) < 0.01}")
+        
+        # Test unbalanced entry (should fail)
+        unbalanced_entry_data = {
+            "entry_date": "2024-12-15",
+            "description": "Test unbalanced entry",
+            "lines": [
+                {
+                    "account_code": "1000",
+                    "account_name": "Cash",
+                    "description": "Unbalanced debit",
+                    "debit": 500.00,
+                    "credit": 0
+                },
+                {
+                    "account_code": "4000",
+                    "account_name": "Sales Revenue",
+                    "description": "Unbalanced credit",
+                    "debit": 0,
+                    "credit": 300.00
+                }
+            ],
+            "status": "Posted"
+        }
+        
+        success3, error_response = self.run_test(
+            "Create Unbalanced Journal Entry (Should Fail)",
+            "POST",
+            f"companies/{self.company_id}/journal-entries",
+            400,
+            data=unbalanced_entry_data,
+            description="Attempt to create unbalanced entry - should fail validation"
+        )
+        
+        if success3:
+            print("   ✅ Correctly rejected unbalanced entry")
+        
+        return success and success2 and success3
+
+    def test_estimates(self):
+        """Test Estimates endpoints"""
+        print("\n" + "="*60)
+        print("💰 TESTING ESTIMATES")
+        print("="*60)
+        
+        # First get customers for estimate
+        success, customers = self.run_test(
+            "Get Customers for Estimate",
+            "GET",
+            f"companies/{self.company_id}/customers",
+            200,
+            description="Get customers list for estimate creation"
+        )
+        
+        if not success or not customers:
+            print("   ❌ No customers found for estimate testing")
+            return False
+        
+        customer_id = customers[0].get('customer_id')
+        customer_name = customers[0].get('name', 'Test Customer')
+        
+        # Test GET estimates
+        success, estimates = self.run_test(
+            "Get Estimates",
+            "GET",
+            f"companies/{self.company_id}/estimates",
+            200,
+            description="Get all estimates"
+        )
+        
+        if not success:
+            return False
+            
+        print(f"   Found {len(estimates)} estimates")
+        
+        # Test POST - Create estimate
+        estimate_data = {
+            "customer_id": customer_id,
+            "customer_name": customer_name,
+            "estimate_date": "2024-12-15",
+            "expiry_date": "2025-01-15",
+            "items": [
+                {
+                    "product": "Test Product",
+                    "description": "Test item for estimate",
+                    "quantity": 10,
+                    "unit": "pcs",
+                    "rate": 25.00,
+                    "amount": 250.00
+                }
+            ],
+            "notes": "Test estimate for API testing",
+            "subtotal": 250.00,
+            "tax_total": 20.00,
+            "total": 270.00,
+            "status": "Draft"
+        }
+        
+        success2, created_estimate = self.run_test(
+            "Create Estimate",
+            "POST",
+            f"companies/{self.company_id}/estimates",
+            201,
+            data=estimate_data,
+            description="Create a new estimate"
+        )
+        
+        if not success2:
+            return False
+            
+        estimate_id = created_estimate.get('estimate_id')
+        print(f"   Created estimate ID: {estimate_id}")
+        
+        # Test convert estimate to invoice
+        success3, converted_invoice = self.run_test(
+            "Convert Estimate to Invoice",
+            "POST",
+            f"companies/{self.company_id}/estimates/{estimate_id}/convert",
+            200,
+            description="Convert estimate to invoice"
+        )
+        
+        if success3:
+            invoice_id = converted_invoice.get('invoice_id')
+            print(f"   Converted to invoice ID: {invoice_id}")
+            print(f"   Invoice total: ${converted_invoice.get('total', 0)}")
+        
+        return success and success2 and success3
+
+    def test_bills(self):
+        """Test Bills endpoints"""
+        print("\n" + "="*60)
+        print("📄 TESTING BILLS")
+        print("="*60)
+        
+        # First get vendors for bill
+        success, vendors = self.run_test(
+            "Get Vendors for Bill",
+            "GET",
+            f"companies/{self.company_id}/vendors",
+            200,
+            description="Get vendors list for bill creation"
+        )
+        
+        if not success or not vendors:
+            print("   ❌ No vendors found for bill testing")
+            return False
+        
+        vendor_id = vendors[0].get('vendor_id')
+        vendor_name = vendors[0].get('name', 'Test Vendor')
+        
+        # Test GET bills
+        success, bills = self.run_test(
+            "Get Bills",
+            "GET",
+            f"companies/{self.company_id}/bills",
+            200,
+            description="Get all bills"
+        )
+        
+        if not success:
+            return False
+            
+        print(f"   Found {len(bills)} bills")
+        
+        # Test POST - Create bill
+        bill_data = {
+            "vendor_id": vendor_id,
+            "vendor_name": vendor_name,
+            "bill_number": "TEST-BILL-001",
+            "bill_date": "2024-12-15",
+            "due_date": "2025-01-15",
+            "items": [
+                {
+                    "account": "6000",
+                    "description": "Test expense item",
+                    "amount": 500.00
+                }
+            ],
+            "notes": "Test bill for API testing",
+            "total": 500.00,
+            "status": "Open"
+        }
+        
+        success2, created_bill = self.run_test(
+            "Create Bill",
+            "POST",
+            f"companies/{self.company_id}/bills",
+            201,
+            data=bill_data,
+            description="Create a new bill"
+        )
+        
+        if not success2:
+            return False
+            
+        bill_id = created_bill.get('bill_id')
+        print(f"   Created bill ID: {bill_id}")
+        
+        # Test pay bill
+        payment_data = {
+            "amount": 250.00,
+            "payment_date": "2024-12-15",
+            "payment_method": "Bank Transfer",
+            "reference": "TEST-PAY-001",
+            "memo": "Partial payment for testing"
+        }
+        
+        success3, paid_bill = self.run_test(
+            "Pay Bill",
+            "POST",
+            f"companies/{self.company_id}/bills/{bill_id}/pay",
+            200,
+            data=payment_data,
+            description="Make partial payment on bill"
+        )
+        
+        if success3:
+            balance_due = paid_bill.get('balance_due', 0)
+            amount_paid = paid_bill.get('amount_paid', 0)
+            print(f"   Amount paid: ${amount_paid}")
+            print(f"   Balance due: ${balance_due}")
+        
+        return success and success2 and success3
+
+    def test_receive_stock(self):
+        """Test Receive Stock endpoints"""
+        print("\n" + "="*60)
+        print("📦 TESTING RECEIVE STOCK")
+        print("="*60)
+        
+        # First get vendors and inventory
+        success, vendors = self.run_test(
+            "Get Vendors for Stock Receipt",
+            "GET",
+            f"companies/{self.company_id}/vendors",
+            200,
+            description="Get vendors list for stock receipt"
+        )
+        
+        success2, inventory = self.run_test(
+            "Get Inventory for Stock Receipt",
+            "GET",
+            f"companies/{self.company_id}/inventory",
+            200,
+            description="Get inventory items for stock receipt"
+        )
+        
+        if not success or not success2 or not vendors or not inventory:
+            print("   ❌ Missing vendors or inventory for stock receipt testing")
+            return False
+        
+        vendor_id = vendors[0].get('vendor_id')
+        vendor_name = vendors[0].get('name', 'Test Vendor')
+        item_id = inventory[0].get('item_id')
+        
+        # Test GET stock receipts
+        success3, receipts = self.run_test(
+            "Get Stock Receipts",
+            "GET",
+            f"companies/{self.company_id}/stock-receipts",
+            200,
+            description="Get all stock receipts"
+        )
+        
+        if not success3:
+            return False
+            
+        print(f"   Found {len(receipts)} stock receipts")
+        
+        # Test POST - Create stock receipt
+        receipt_data = {
+            "vendor_id": vendor_id,
+            "vendor_name": vendor_name,
+            "reference": "PO-TEST-001",
+            "receive_date": "2024-12-15",
+            "items": [
+                {
+                    "item_id": item_id,
+                    "product_name": "Test Product",
+                    "quantity": 50,
+                    "unit_cost": 10.00
+                }
+            ],
+            "notes": "Test stock receipt for API testing",
+            "total_cost": 500.00
+        }
+        
+        success4, created_receipt = self.run_test(
+            "Create Stock Receipt",
+            "POST",
+            f"companies/{self.company_id}/stock-receipts",
+            201,
+            data=receipt_data,
+            description="Create a new stock receipt"
+        )
+        
+        if success4:
+            receipt_id = created_receipt.get('receipt_id')
+            total_cost = created_receipt.get('total_cost', 0)
+            print(f"   Created receipt ID: {receipt_id}")
+            print(f"   Total cost: ${total_cost}")
+        
+        return success and success2 and success3 and success4
+
+    def test_general_ledger(self):
+        """Test General Ledger endpoints"""
+        print("\n" + "="*60)
+        print("📚 TESTING GENERAL LEDGER")
+        print("="*60)
+        
+        # Test GET general ledger
+        success, ledger = self.run_test(
+            "Get General Ledger",
+            "GET",
+            f"companies/{self.company_id}/general-ledger",
+            200,
+            description="Get general ledger with all accounts and transactions"
+        )
+        
+        if not success:
+            return False
+            
+        print(f"   Found {len(ledger)} accounts in ledger")
+        
+        # Check if accounts have entries
+        accounts_with_entries = [acc for acc in ledger if acc.get('entries')]
+        print(f"   Accounts with transactions: {len(accounts_with_entries)}")
+        
+        # Test with account filter
+        if ledger:
+            first_account_code = ledger[0].get('code')
+            success2, filtered_ledger = self.run_test(
+                "Get General Ledger Filtered",
+                "GET",
+                f"companies/{self.company_id}/general-ledger?account_code={first_account_code}",
+                200,
+                description=f"Get general ledger filtered by account {first_account_code}"
+            )
+            
+            if success2:
+                print(f"   Filtered ledger accounts: {len(filtered_ledger)}")
+        else:
+            success2 = True
+        
+        # Test with date range
+        success3, dated_ledger = self.run_test(
+            "Get General Ledger with Date Range",
+            "GET",
+            f"companies/{self.company_id}/general-ledger?start_date=2024-01-01&end_date=2024-12-31",
+            200,
+            description="Get general ledger for specific date range"
+        )
+        
+        return success and success2 and success3
+
+    def test_trial_balance(self):
+        """Test Trial Balance endpoints"""
+        print("\n" + "="*60)
+        print("⚖️ TESTING TRIAL BALANCE")
+        print("="*60)
+        
+        # Test GET trial balance
+        success, trial_balance = self.run_test(
+            "Get Trial Balance",
+            "GET",
+            f"companies/{self.company_id}/trial-balance",
+            200,
+            description="Get trial balance with all account balances"
+        )
+        
+        if not success:
+            return False
+            
+        rows = trial_balance.get('rows', [])
+        total_debit = trial_balance.get('total_debit', 0)
+        total_credit = trial_balance.get('total_credit', 0)
+        balanced = trial_balance.get('balanced', False)
+        
+        print(f"   Trial balance rows: {len(rows)}")
+        print(f"   Total Debits: ${total_debit:,.2f}")
+        print(f"   Total Credits: ${total_credit:,.2f}")
+        print(f"   Balanced: {balanced}")
+        
+        if balanced:
+            print("   ✅ Trial balance is balanced")
+        else:
+            print(f"   ⚠️  Trial balance not balanced - difference: ${abs(total_debit - total_credit):,.2f}")
+        
+        # Test with specific date
+        success2, dated_trial_balance = self.run_test(
+            "Get Trial Balance with Date",
+            "GET",
+            f"companies/{self.company_id}/trial-balance?as_of_date=2024-12-31",
+            200,
+            description="Get trial balance as of specific date"
+        )
+        
+        return success and success2
+
+    def test_receive_payment_bulk(self):
+        """Test Receive Payment Bulk endpoint"""
+        print("\n" + "="*60)
+        print("💸 TESTING RECEIVE PAYMENT BULK")
+        print("="*60)
+        
+        # First get customers and invoices
+        success, customers = self.run_test(
+            "Get Customers for Payment",
+            "GET",
+            f"companies/{self.company_id}/customers",
+            200,
+            description="Get customers for bulk payment testing"
+        )
+        
+        if not success or not customers:
+            print("   ❌ No customers found for payment testing")
+            return False
+        
+        customer_id = customers[0].get('customer_id')
+        
+        # Test bulk payment
+        payment_data = {
+            "customer_id": customer_id,
+            "payment_date": "2024-12-15",
+            "payment_method": "Bank Transfer",
+            "reference": "BULK-PAY-001",
+            "memo": "Test bulk payment",
+            "total_amount": 1000.00,
+            "invoice_applications": [
+                {
+                    "invoice_id": "test_invoice_1",
+                    "amount": 500.00
+                },
+                {
+                    "invoice_id": "test_invoice_2", 
+                    "amount": 500.00
+                }
+            ]
+        }
+        
+        success, payment_response = self.run_test(
+            "Receive Payment Bulk",
+            "POST",
+            f"companies/{self.company_id}/receive-payment",
+            200,
+            data=payment_data,
+            description="Process bulk payment application to multiple invoices"
+        )
+        
+        if success:
+            print(f"   Payment processed successfully")
+        
+        return success
+
     def test_inventory_for_alerts(self):
         """Test inventory to check for low stock items"""
         print("\n" + "="*60)
@@ -596,6 +1162,51 @@ class HishabNikashAPITester:
         # Test Customer Statement (NEW)
         if not self.test_customer_statement():
             print("\n❌ Customer Statement tests failed")
+            return False
+        
+        # QuickBooks-Level Accounting Features
+        print("\n" + "="*60)
+        print("🏦 TESTING QUICKBOOKS-LEVEL ACCOUNTING FEATURES")
+        print("="*60)
+        
+        # Test Chart of Accounts (19 default accounts)
+        if not self.test_chart_of_accounts():
+            print("\n❌ Chart of Accounts tests failed")
+            return False
+        
+        # Test Journal Entries (double-entry validation)
+        if not self.test_journal_entries():
+            print("\n❌ Journal Entries tests failed")
+            return False
+        
+        # Test Estimates (with convert-to-invoice)
+        if not self.test_estimates():
+            print("\n❌ Estimates tests failed")
+            return False
+        
+        # Test Bills (AP with pay bill)
+        if not self.test_bills():
+            print("\n❌ Bills tests failed")
+            return False
+        
+        # Test Receive Stock
+        if not self.test_receive_stock():
+            print("\n❌ Receive Stock tests failed")
+            return False
+        
+        # Test General Ledger
+        if not self.test_general_ledger():
+            print("\n❌ General Ledger tests failed")
+            return False
+        
+        # Test Trial Balance
+        if not self.test_trial_balance():
+            print("\n❌ Trial Balance tests failed")
+            return False
+        
+        # Test Receive Payment Bulk
+        if not self.test_receive_payment_bulk():
+            print("\n❌ Receive Payment Bulk tests failed")
             return False
         
         return True

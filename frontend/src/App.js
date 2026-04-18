@@ -32,6 +32,13 @@ import BalanceSheet from './pages/BalanceSheet';
 import CashFlow from './pages/CashFlow';
 import PackingListPrint from './pages/PackingListPrint';
 import CustomerStatementPrint from './pages/CustomerStatementPrint';
+import ChartOfAccounts from './pages/ChartOfAccounts';
+import JournalEntries from './pages/JournalEntries';
+import EstimatesList from './pages/EstimatesList';
+import BillsList from './pages/BillsList';
+import ReceiveStock from './pages/ReceiveStock';
+import GeneralLedger from './pages/GeneralLedger';
+import TrialBalance from './pages/TrialBalance';
 import './App.css';
 
 function AppRouter() {
@@ -130,6 +137,27 @@ function AppRouter() {
       } />
       <Route path="/settings" element={
         <ProtectedRoute><Settings /></ProtectedRoute>
+      } />
+      <Route path="/estimates" element={
+        <ProtectedRoute><EstimatesList /></ProtectedRoute>
+      } />
+      <Route path="/bills" element={
+        <ProtectedRoute><BillsList /></ProtectedRoute>
+      } />
+      <Route path="/receive-stock" element={
+        <ProtectedRoute><ReceiveStock /></ProtectedRoute>
+      } />
+      <Route path="/chart-of-accounts" element={
+        <ProtectedRoute><ChartOfAccounts /></ProtectedRoute>
+      } />
+      <Route path="/journal-entries" element={
+        <ProtectedRoute><JournalEntries /></ProtectedRoute>
+      } />
+      <Route path="/general-ledger" element={
+        <ProtectedRoute><GeneralLedger /></ProtectedRoute>
+      } />
+      <Route path="/trial-balance" element={
+        <ProtectedRoute><TrialBalance /></ProtectedRoute>
       } />
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

@@ -161,6 +161,63 @@ class EmailRequest(BaseModel):
     subject: str
     html_content: str
 
+class EstimateCreate(BaseModel):
+    customer_id: str
+    customer_name: str = ""
+    estimate_date: str = ""
+    expiry_date: str = ""
+    items: List[InvoiceLineItem] = []
+    notes: str = ""
+    terms: str = "Valid for 30 days"
+    subtotal: float = 0
+    tax_total: float = 0
+    discount_total: float = 0
+    total: float = 0
+    status: str = "Draft"
+
+class BillCreate(BaseModel):
+    vendor_id: str
+    vendor_name: str = ""
+    bill_number: str = ""
+    bill_date: str = ""
+    due_date: str = ""
+    items: list = []
+    notes: str = ""
+    total: float = 0
+    status: str = "Open"
+    amount_paid: float = 0
+
+class JournalEntryLine(BaseModel):
+    account_code: str = ""
+    account_name: str = ""
+    description: str = ""
+    debit: float = 0
+    credit: float = 0
+
+class JournalEntryCreate(BaseModel):
+    entry_date: str = ""
+    description: str = ""
+    lines: List[JournalEntryLine] = []
+    status: str = "Draft"
+
+class ReceiveStockCreate(BaseModel):
+    vendor_id: str = ""
+    vendor_name: str = ""
+    reference: str = ""
+    receive_date: str = ""
+    items: list = []
+    notes: str = ""
+    total_cost: float = 0
+
+class AccountCreate(BaseModel):
+    code: str
+    name: str
+    account_type: str
+    sub_type: str = ""
+    description: str = ""
+    opening_balance: float = 0
+    status: str = "Active"
+
 # ─── Auth Helpers ───
 
 async def get_current_user(request: Request) -> dict:
@@ -980,6 +1037,352 @@ async def get_customer_statement(company_id: str, customer_id: str, user: dict =
         "statement_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         "invoice_count": len(invoices)
     }
+
+# ─── Chart of Accounts Routes ───
+
+DEFAULT_ACCOUNTS = [
+    {"code": "1000", "name": "Cash", "account_type": "Asset", "sub_type": "Current Asset", "opening_balance": 50000},
+    {"code": "1100", "name": "Accounts Receivable", "account_type": "Asset", "sub_type": "Current Asset"},
+    {"code": "1200", "name": "Inventory", "account_type": "Asset", "sub_type": "Current Asset"},
+    {"code": "1500", "name": "Equipment", "account_type": "Asset", "sub_type": "Fixed Asset"},
+    {"code": "1600", "name": "Accumulated Depreciation", "account_type": "Asset", "sub_type": "Fixed Asset"},
+    {"code": "2000", "name": "Accounts Payable", "account_type": "Liability", "sub_type": "Current Liability"},
+    {"code": "2100", "name": "Credit Cards Payable", "account_type": "Liability", "sub_type": "Current Liability"},
+    {"code": "2200", "name": "Sales Tax Payable", "account_type": "Liability", "sub_type": "Current Liability"},
+    {"code": "2500", "name": "Long-Term Debt", "account_type": "Liability", "sub_type": "Long-Term"},
+    {"code": "3000", "name": "Owner Equity", "account_type": "Equity", "sub_type": "Owner's Equity", "opening_balance": 50000},
+    {"code": "3100", "name": "Retained Earnings", "account_type": "Equity", "sub_type": "Owner's Equity"},
+    {"code": "4000", "name": "Sales Revenue", "account_type": "Income", "sub_type": "Operating Revenue"},
+    {"code": "4100", "name": "Shipping Income", "account_type": "Income", "sub_type": "Other Revenue"},
+    {"code": "5000", "name": "Cost of Goods Sold", "account_type": "Expense", "sub_type": "Cost of Sales"},
+    {"code": "6000", "name": "Rent Expense", "account_type": "Expense", "sub_type": "Operating Expense"},
+    {"code": "6100", "name": "Utilities", "account_type": "Expense", "sub_type": "Operating Expense"},
+    {"code": "6200", "name": "Payroll Expense", "account_type": "Expense", "sub_type": "Operating Expense"},
+    {"code": "6300", "name": "Insurance", "account_type": "Expense", "sub_type": "Operating Expense"},
+    {"code": "6400", "name": "Shipping & Freight", "account_type": "Expense", "sub_type": "Operating Expense"},
+]
+
+@api_router.get("/companies/{company_id}/accounts")
+async def get_accounts(company_id: str, user: dict = Depends(get_current_user)):
+    accounts = await db.accounts.find({"company_id": company_id}, {"_id": 0}).sort("code", 1).to_list(200)
+    if not accounts:
+        for acct in DEFAULT_ACCOUNTS:
+            doc = {"account_id": f"acct_{uuid.uuid4().hex[:10]}", "company_id": company_id, **acct, "balance": acct.get("opening_balance", 0), "status": "Active", "created_at": datetime.now(timezone.utc).isoformat()}
+            if "opening_balance" not in acct:
+                doc["opening_balance"] = 0
+                doc["balance"] = 0
+            await db.accounts.insert_one(doc)
+        accounts = await db.accounts.find({"company_id": company_id}, {"_id": 0}).sort("code", 1).to_list(200)
+    return accounts
+
+@api_router.post("/companies/{company_id}/accounts", status_code=201)
+async def create_account(company_id: str, data: AccountCreate, user: dict = Depends(get_current_user)):
+    acct = {"account_id": f"acct_{uuid.uuid4().hex[:10]}", "company_id": company_id, **data.model_dump(), "balance": data.opening_balance, "created_at": datetime.now(timezone.utc).isoformat()}
+    await db.accounts.insert_one(acct)
+    acct.pop("_id", None)
+    return acct
+
+@api_router.put("/companies/{company_id}/accounts/{account_id}")
+async def update_account(company_id: str, account_id: str, data: AccountCreate, user: dict = Depends(get_current_user)):
+    await db.accounts.update_one({"company_id": company_id, "account_id": account_id}, {"$set": data.model_dump()})
+    updated = await db.accounts.find_one({"company_id": company_id, "account_id": account_id}, {"_id": 0})
+    return updated
+
+# ─── Journal Entries Routes ───
+
+@api_router.get("/companies/{company_id}/journal-entries")
+async def get_journal_entries(company_id: str, user: dict = Depends(get_current_user)):
+    entries = await db.journal_entries.find({"company_id": company_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return entries
+
+@api_router.post("/companies/{company_id}/journal-entries", status_code=201)
+async def create_journal_entry(company_id: str, data: JournalEntryCreate, user: dict = Depends(get_current_user)):
+    count = await db.journal_entries.count_documents({"company_id": company_id})
+    entry_number = f"JE-{datetime.now(timezone.utc).year}-{str(count + 1).zfill(3)}"
+    total_debit = sum(l.debit for l in data.lines)
+    total_credit = sum(l.credit for l in data.lines)
+    if data.status == "Posted" and abs(total_debit - total_credit) > 0.01:
+        raise HTTPException(status_code=400, detail="Debits must equal credits to post")
+    entry = {
+        "entry_id": f"je_{uuid.uuid4().hex[:10]}",
+        "company_id": company_id,
+        "entry_number": entry_number,
+        "entry_date": data.entry_date or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "description": data.description,
+        "lines": [l.model_dump() for l in data.lines],
+        "total_debit": round(total_debit, 2),
+        "total_credit": round(total_credit, 2),
+        "status": data.status,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": user["user_id"]
+    }
+    await db.journal_entries.insert_one(entry)
+    entry.pop("_id", None)
+    if data.status == "Posted":
+        for line in data.lines:
+            if line.debit > 0:
+                await db.accounts.update_one({"company_id": company_id, "code": line.account_code}, {"$inc": {"balance": line.debit}})
+            if line.credit > 0:
+                await db.accounts.update_one({"company_id": company_id, "code": line.account_code}, {"$inc": {"balance": -line.credit}})
+    return entry
+
+@api_router.put("/companies/{company_id}/journal-entries/{entry_id}/post")
+async def post_journal_entry(company_id: str, entry_id: str, user: dict = Depends(get_current_user)):
+    entry = await db.journal_entries.find_one({"company_id": company_id, "entry_id": entry_id}, {"_id": 0})
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    if entry["status"] == "Posted":
+        raise HTTPException(status_code=400, detail="Already posted")
+    if abs(entry["total_debit"] - entry["total_credit"]) > 0.01:
+        raise HTTPException(status_code=400, detail="Debits must equal credits")
+    await db.journal_entries.update_one({"entry_id": entry_id}, {"$set": {"status": "Posted"}})
+    for line in entry.get("lines", []):
+        if line.get("debit", 0) > 0:
+            await db.accounts.update_one({"company_id": company_id, "code": line["account_code"]}, {"$inc": {"balance": line["debit"]}})
+        if line.get("credit", 0) > 0:
+            await db.accounts.update_one({"company_id": company_id, "code": line["account_code"]}, {"$inc": {"balance": -line["credit"]}})
+    return {"ok": True}
+
+# ─── Estimates Routes ───
+
+@api_router.get("/companies/{company_id}/estimates")
+async def get_estimates(company_id: str, user: dict = Depends(get_current_user)):
+    return await db.estimates.find({"company_id": company_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
+
+@api_router.post("/companies/{company_id}/estimates", status_code=201)
+async def create_estimate(company_id: str, data: EstimateCreate, user: dict = Depends(get_current_user)):
+    count = await db.estimates.count_documents({"company_id": company_id})
+    est = {
+        "estimate_id": f"est_{uuid.uuid4().hex[:10]}",
+        "company_id": company_id,
+        "estimate_number": f"EST-{datetime.now(timezone.utc).year}-{str(count + 1).zfill(3)}",
+        **data.model_dump(),
+        "items": [i.model_dump() for i in data.items],
+        "estimate_date": data.estimate_date or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": user["user_id"]
+    }
+    await db.estimates.insert_one(est)
+    est.pop("_id", None)
+    return est
+
+@api_router.get("/companies/{company_id}/estimates/{estimate_id}")
+async def get_estimate(company_id: str, estimate_id: str, user: dict = Depends(get_current_user)):
+    e = await db.estimates.find_one({"company_id": company_id, "estimate_id": estimate_id}, {"_id": 0})
+    if not e:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    return e
+
+@api_router.put("/companies/{company_id}/estimates/{estimate_id}")
+async def update_estimate(company_id: str, estimate_id: str, request: Request, user: dict = Depends(get_current_user)):
+    body = await request.json()
+    body.pop("_id", None)
+    body.pop("estimate_id", None)
+    body.pop("company_id", None)
+    await db.estimates.update_one({"estimate_id": estimate_id}, {"$set": body})
+    return await db.estimates.find_one({"estimate_id": estimate_id}, {"_id": 0})
+
+@api_router.post("/companies/{company_id}/estimates/{estimate_id}/convert")
+async def convert_estimate_to_invoice(company_id: str, estimate_id: str, user: dict = Depends(get_current_user)):
+    est = await db.estimates.find_one({"company_id": company_id, "estimate_id": estimate_id}, {"_id": 0})
+    if not est:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    count = await db.invoices.count_documents({"company_id": company_id})
+    inv = {
+        "invoice_id": f"inv_{uuid.uuid4().hex[:10]}",
+        "company_id": company_id,
+        "invoice_number": f"INV-{datetime.now(timezone.utc).year}-{str(count + 1).zfill(3)}",
+        "customer_id": est.get("customer_id", ""),
+        "customer_name": est.get("customer_name", ""),
+        "invoice_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "due_date": (datetime.now(timezone.utc) + timedelta(days=30)).strftime("%Y-%m-%d"),
+        "sales_rep": "", "warehouse": "",
+        "items": est.get("items", []),
+        "notes": est.get("notes", ""), "terms": "Net 30",
+        "subtotal": est.get("subtotal", 0), "tax_total": est.get("tax_total", 0),
+        "discount_total": est.get("discount_total", 0), "total": est.get("total", 0),
+        "status": "Draft", "payment_status": "Unpaid", "amount_paid": 0,
+        "balance_due": est.get("total", 0), "payments": [],
+        "converted_from": estimate_id,
+        "created_at": datetime.now(timezone.utc).isoformat(), "created_by": user["user_id"]
+    }
+    await db.invoices.insert_one(inv)
+    await db.estimates.update_one({"estimate_id": estimate_id}, {"$set": {"status": "Converted"}})
+    inv.pop("_id", None)
+    return inv
+
+@api_router.delete("/companies/{company_id}/estimates/{estimate_id}")
+async def delete_estimate(company_id: str, estimate_id: str, user: dict = Depends(get_current_user)):
+    await db.estimates.delete_one({"estimate_id": estimate_id})
+    return {"ok": True}
+
+# ─── Bills Routes ───
+
+@api_router.get("/companies/{company_id}/bills")
+async def get_bills(company_id: str, user: dict = Depends(get_current_user)):
+    return await db.bills.find({"company_id": company_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
+
+@api_router.post("/companies/{company_id}/bills", status_code=201)
+async def create_bill(company_id: str, data: BillCreate, user: dict = Depends(get_current_user)):
+    bill = {
+        "bill_id": f"bill_{uuid.uuid4().hex[:10]}",
+        "company_id": company_id,
+        **data.model_dump(),
+        "balance_due": data.total - data.amount_paid,
+        "payments": [],
+        "bill_date": data.bill_date or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "created_at": datetime.now(timezone.utc).isoformat(), "created_by": user["user_id"]
+    }
+    await db.bills.insert_one(bill)
+    bill.pop("_id", None)
+    if data.vendor_id:
+        await db.vendors.update_one({"vendor_id": data.vendor_id}, {"$inc": {"payable_balance": data.total, "total_billed": data.total, "bill_count": 1}})
+    return bill
+
+@api_router.get("/companies/{company_id}/bills/{bill_id}")
+async def get_bill(company_id: str, bill_id: str, user: dict = Depends(get_current_user)):
+    b = await db.bills.find_one({"company_id": company_id, "bill_id": bill_id}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Bill not found")
+    return b
+
+@api_router.post("/companies/{company_id}/bills/{bill_id}/pay")
+async def pay_bill(company_id: str, bill_id: str, payment: PaymentRecord, user: dict = Depends(get_current_user)):
+    bill = await db.bills.find_one({"company_id": company_id, "bill_id": bill_id}, {"_id": 0})
+    if not bill:
+        raise HTTPException(status_code=404, detail="Bill not found")
+    new_paid = bill.get("amount_paid", 0) + payment.amount
+    new_balance = bill["total"] - new_paid
+    new_status = "Paid" if new_balance <= 0 else "Partial"
+    pmt = {"payment_id": f"pmt_{uuid.uuid4().hex[:8]}", **payment.model_dump(), "recorded_at": datetime.now(timezone.utc).isoformat()}
+    await db.bills.update_one({"bill_id": bill_id}, {"$set": {"amount_paid": new_paid, "balance_due": new_balance, "status": new_status}, "$push": {"payments": pmt}})
+    if bill.get("vendor_id"):
+        await db.vendors.update_one({"vendor_id": bill["vendor_id"]}, {"$inc": {"payable_balance": -payment.amount}})
+    return await db.bills.find_one({"bill_id": bill_id}, {"_id": 0})
+
+@api_router.delete("/companies/{company_id}/bills/{bill_id}")
+async def delete_bill(company_id: str, bill_id: str, user: dict = Depends(get_current_user)):
+    await db.bills.delete_one({"bill_id": bill_id})
+    return {"ok": True}
+
+# ─── Receive Stock Routes ───
+
+@api_router.get("/companies/{company_id}/stock-receipts")
+async def get_stock_receipts(company_id: str, user: dict = Depends(get_current_user)):
+    return await db.stock_receipts.find({"company_id": company_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
+
+@api_router.post("/companies/{company_id}/stock-receipts", status_code=201)
+async def create_stock_receipt(company_id: str, data: ReceiveStockCreate, user: dict = Depends(get_current_user)):
+    receipt = {
+        "receipt_id": f"rcpt_{uuid.uuid4().hex[:10]}",
+        "company_id": company_id,
+        **data.model_dump(),
+        "receive_date": data.receive_date or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "created_at": datetime.now(timezone.utc).isoformat(), "created_by": user["user_id"]
+    }
+    await db.stock_receipts.insert_one(receipt)
+    receipt.pop("_id", None)
+    for item in data.items:
+        if isinstance(item, dict) and item.get("item_id"):
+            await db.inventory.update_one(
+                {"item_id": item["item_id"]},
+                {"$inc": {"stock_on_hand": item.get("quantity", 0), "available_stock": item.get("quantity", 0), "inventory_value": item.get("quantity", 0) * item.get("unit_cost", 0)},
+                 "$push": {"movement_history": {"movement_id": f"mov_{uuid.uuid4().hex[:8]}", "type": "receive", "quantity": item.get("quantity", 0), "reason": f"Stock Receipt {receipt['receipt_id']}", "reference": data.reference, "date": datetime.now(timezone.utc).isoformat(), "by": user["user_id"]}}}
+            )
+    return receipt
+
+# ─── General Ledger & Trial Balance Routes ───
+
+@api_router.get("/companies/{company_id}/general-ledger")
+async def get_general_ledger(company_id: str, account_code: Optional[str] = None, start_date: Optional[str] = None, end_date: Optional[str] = None, user: dict = Depends(get_current_user)):
+    accounts = await db.accounts.find({"company_id": company_id}, {"_id": 0}).sort("code", 1).to_list(200)
+    entries = await db.journal_entries.find({"company_id": company_id, "status": "Posted"}, {"_id": 0}).sort("entry_date", 1).to_list(1000)
+    if start_date:
+        entries = [e for e in entries if e.get("entry_date", "") >= start_date]
+    if end_date:
+        entries = [e for e in entries if e.get("entry_date", "") <= end_date]
+    ledger = []
+    for acct in accounts:
+        if account_code and acct["code"] != account_code:
+            continue
+        acct_entries = []
+        for entry in entries:
+            for line in entry.get("lines", []):
+                if line.get("account_code") == acct["code"]:
+                    acct_entries.append({"date": entry.get("entry_date", ""), "entry_number": entry.get("entry_number", ""), "description": line.get("description", "") or entry.get("description", ""), "debit": line.get("debit", 0), "credit": line.get("credit", 0)})
+        if acct_entries or acct.get("opening_balance", 0) != 0:
+            running = acct.get("opening_balance", 0)
+            for ae in acct_entries:
+                running += ae["debit"] - ae["credit"]
+                ae["balance"] = round(running, 2)
+            ledger.append({"code": acct["code"], "name": acct["name"], "type": acct["account_type"], "opening_balance": acct.get("opening_balance", 0), "entries": acct_entries, "closing_balance": round(running, 2)})
+    return ledger
+
+@api_router.get("/companies/{company_id}/trial-balance")
+async def get_trial_balance(company_id: str, as_of_date: Optional[str] = None, user: dict = Depends(get_current_user)):
+    accounts = await db.accounts.find({"company_id": company_id}, {"_id": 0}).sort("code", 1).to_list(200)
+    if not accounts:
+        await get_accounts(company_id, user)
+        accounts = await db.accounts.find({"company_id": company_id}, {"_id": 0}).sort("code", 1).to_list(200)
+    entries = await db.journal_entries.find({"company_id": company_id, "status": "Posted"}, {"_id": 0}).to_list(1000)
+    if as_of_date:
+        entries = [e for e in entries if e.get("entry_date", "") <= as_of_date]
+    account_balances = {}
+    for acct in accounts:
+        account_balances[acct["code"]] = {"code": acct["code"], "name": acct["name"], "type": acct["account_type"], "debit": 0, "credit": 0}
+        ob = acct.get("opening_balance", 0)
+        if acct["account_type"] in ["Asset", "Expense"]:
+            account_balances[acct["code"]]["debit"] = ob
+        else:
+            account_balances[acct["code"]]["credit"] = ob
+    for entry in entries:
+        for line in entry.get("lines", []):
+            code = line.get("account_code", "")
+            if code in account_balances:
+                account_balances[code]["debit"] += line.get("debit", 0)
+                account_balances[code]["credit"] += line.get("credit", 0)
+    rows = []
+    total_debit = 0
+    total_credit = 0
+    for code, data in sorted(account_balances.items()):
+        net = data["debit"] - data["credit"]
+        if abs(net) > 0.001:
+            row = {"code": data["code"], "name": data["name"], "type": data["type"], "debit": round(max(0, net), 2), "credit": round(max(0, -net), 2)}
+            rows.append(row)
+            total_debit += row["debit"]
+            total_credit += row["credit"]
+    return {"as_of_date": as_of_date or datetime.now(timezone.utc).strftime("%Y-%m-%d"), "rows": rows, "total_debit": round(total_debit, 2), "total_credit": round(total_credit, 2), "balanced": abs(total_debit - total_credit) < 0.01}
+
+# ─── Receive Payment Standalone ───
+
+@api_router.post("/companies/{company_id}/receive-payment")
+async def receive_payment_bulk(company_id: str, request: Request, user: dict = Depends(get_current_user)):
+    body = await request.json()
+    customer_id = body.get("customer_id", "")
+    payment_date = body.get("payment_date", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    payment_method = body.get("payment_method", "Bank Transfer")
+    reference = body.get("reference", "")
+    deposit_to = body.get("deposit_to", "1000")
+    applications = body.get("applications", [])
+    total_applied = 0
+    for app in applications:
+        inv_id = app.get("invoice_id", "")
+        amount = app.get("amount", 0)
+        if not inv_id or amount <= 0:
+            continue
+        inv = await db.invoices.find_one({"invoice_id": inv_id}, {"_id": 0})
+        if not inv:
+            continue
+        new_paid = inv.get("amount_paid", 0) + amount
+        new_balance = inv["total"] - new_paid
+        new_status = "Paid" if new_balance <= 0 else "Sent"
+        new_ps = "Paid" if new_balance <= 0 else "Partial"
+        pmt_entry = {"payment_id": f"pmt_{uuid.uuid4().hex[:8]}", "amount": amount, "payment_date": payment_date, "payment_method": payment_method, "reference": reference, "recorded_at": datetime.now(timezone.utc).isoformat(), "recorded_by": user["user_id"]}
+        await db.invoices.update_one({"invoice_id": inv_id}, {"$set": {"amount_paid": new_paid, "balance_due": max(0, new_balance), "status": new_status, "payment_status": new_ps}, "$push": {"payments": pmt_entry}})
+        if inv.get("customer_id"):
+            await db.customers.update_one({"customer_id": inv["customer_id"]}, {"$inc": {"open_balance": -amount}})
+        total_applied += amount
+    return {"status": "success", "total_applied": round(total_applied, 2), "invoices_updated": len(applications)}
 
 # ─── Products Routes ───
 

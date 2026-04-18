@@ -103,6 +103,48 @@ export const importCustomersCSV = (companyId, formData) => api.post(`/companies/
 export const importVendorsCSV = (companyId, formData) => api.post(`/companies/${companyId}/import/vendors`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
 export const importProductsCSV = (companyId, formData) => api.post(`/companies/${companyId}/import/products`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
 
+// Chart of Accounts
+export const getAccounts = (companyId) => api.get(`/companies/${companyId}/accounts`);
+export const createAccount = (companyId, data) => api.post(`/companies/${companyId}/accounts`, data);
+export const updateAccount = (companyId, accountId, data) => api.put(`/companies/${companyId}/accounts/${accountId}`, data);
+
+// Journal Entries
+export const getJournalEntries = (companyId) => api.get(`/companies/${companyId}/journal-entries`);
+export const createJournalEntry = (companyId, data) => api.post(`/companies/${companyId}/journal-entries`, data);
+export const postJournalEntry = (companyId, entryId) => api.put(`/companies/${companyId}/journal-entries/${entryId}/post`);
+
+// Estimates
+export const getEstimates = (companyId) => api.get(`/companies/${companyId}/estimates`);
+export const createEstimate = (companyId, data) => api.post(`/companies/${companyId}/estimates`, data);
+export const getEstimate = (companyId, estimateId) => api.get(`/companies/${companyId}/estimates/${estimateId}`);
+export const updateEstimate = (companyId, estimateId, data) => api.put(`/companies/${companyId}/estimates/${estimateId}`, data);
+export const convertEstimateToInvoice = (companyId, estimateId) => api.post(`/companies/${companyId}/estimates/${estimateId}/convert`);
+export const deleteEstimate = (companyId, estimateId) => api.delete(`/companies/${companyId}/estimates/${estimateId}`);
+
+// Bills
+export const getBills = (companyId) => api.get(`/companies/${companyId}/bills`);
+export const createBill = (companyId, data) => api.post(`/companies/${companyId}/bills`, data);
+export const getBill = (companyId, billId) => api.get(`/companies/${companyId}/bills/${billId}`);
+export const payBill = (companyId, billId, data) => api.post(`/companies/${companyId}/bills/${billId}/pay`, data);
+export const deleteBill = (companyId, billId) => api.delete(`/companies/${companyId}/bills/${billId}`);
+
+// Stock Receipts
+export const getStockReceipts = (companyId) => api.get(`/companies/${companyId}/stock-receipts`);
+export const createStockReceipt = (companyId, data) => api.post(`/companies/${companyId}/stock-receipts`, data);
+
+// General Ledger & Trial Balance
+export const getGeneralLedger = (companyId, params) => {
+  const qs = new URLSearchParams(params || {}).toString();
+  return api.get(`/companies/${companyId}/general-ledger${qs ? '?' + qs : ''}`);
+};
+export const getTrialBalance = (companyId, asOfDate) => {
+  const qs = asOfDate ? `?as_of_date=${asOfDate}` : '';
+  return api.get(`/companies/${companyId}/trial-balance${qs}`);
+};
+
+// Receive Payment
+export const receivePaymentBulk = (companyId, data) => api.post(`/companies/${companyId}/receive-payment`, data);
+
 // Reports
 export const getProfitLoss = (companyId, startDate, endDate) => {
   const params = new URLSearchParams();
