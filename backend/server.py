@@ -16,7 +16,51 @@ from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
 import uuid
 from datetime import datetime, timezone, timedelta
-from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
+from openai import AsyncOpenAI
+# Compatibility shim replacing emergentintegrations
+_openai_client = None
+def _get_openai_client():
+    global _openai_client
+    if _openai_client is None:
+        _openai_client = AsyncOpenAI(api_key=os.environ.get('EMERGENT_LLM_KEY', ''))
+    return _openai_client
+class ImageContent:
+    def __init__(self, image_base64: str = None, url: str = None):
+        self.image_base64 = image_base64
+        self.url = url
+class UserMessage:
+    def __init__(self, text: str = '', file_contents: list = None):
+        self.text = text
+        self.file_contents = file_contents or []
+class LlmChat:
+    def __init__(self, api_key: str = '', session_id: str = '', system_message: str = ''):
+        self.api_key = api_key
+        self.session_id = session_id
+        self.system_message = system_message
+        self.model = 'gpt-4o'
+        self.messages = []
+    def with_model(self, provider: str, model: str):
+        self.model = model
+        return self
+    async def send_message(self, user_msg: 'UserMessage') -> str:
+        client = AsyncOpenAI(api_key=self.api_key or os.environ.get('EMERGENT_LLM_KEY', ''))
+        msgs = [{'role': 'system', 'content': self.system_message}]
+        for m in self.messages:
+            if isinstance(m, dict):
+                msgs.append(m)
+        content = []
+        if user_msg.text:
+            content.append({'type': 'text', 'text': user_msg.text})
+        for fc in user_msg.file_contents:
+            if isinstance(fc, ImageContent) and fc.image_base64:
+                content.append({'type': 'image_url', 'image_url': {'url': f'data:image/jpeg;base64,{fc.image_base64}'}})
+        msgs.append({'role': 'user', 'content': content if len(content) > 1 else user_msg.text})
+        try:
+            resp = await client.chat.completions.create(model='gpt-4o', messages=msgs)
+            return resp.choices[0].message.content
+        except Exception:
+            resp = await client.chat.completions.create(model='gpt-4o-mini', messages=msgs)
+            return resp.choices[0].message.content
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
